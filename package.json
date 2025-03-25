@@ -1,0 +1,26 @@
+{
+    "name": "my-ts-app",
+    "version": "1.0.0",
+    "scripts": {
+        "start": "webpack serve --mode development",
+        "build": "webpack --mode production",
+        "type-check": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@kynesyslabs/demosdk": "^2.1.6",
+        "axios": "^1.6.0",
+        "crypto": "^1.0.1",
+        "dotenv": "^16.4.7",
+        "dotenv-webpack": "^8.1.0"
+    },
+    "devDependencies": {
+        "typescript": "^5.0.0",
+        "webpack": "^5.89.0",
+        "webpack-cli": "^5.1.4",
+        "webpack-dev-server": "^4.15.1",
+        "ts-loader": "^9.5.0",
+        "html-webpack-plugin": "^5.5.3",
+        "css-loader": "^6.8.1",
+        "style-loader": "^3.3.3"
+    }
+}

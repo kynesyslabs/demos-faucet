@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Demos Faucet</title>
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap"
+    />
+  </head>
+  <body>
+    <div id="app">
+      <div class="container">
+        <div class="faucet-card">
+          <div class="faucet-header">
+            <h1>Demos Faucet</h1>
+            <div class="network-badge">Testnet</div>
+          </div>
+
+          <div class="faucet-content">
+            <div class="balance-display">
+              <div class="balance-inner">
+                <span class="label">Available Balance</span>
+                <span class="amount">1000 DEMOS</span>
+              </div>
+            </div>
+
+            <form id="faucet-form" class="faucet-form">
+              <div class="input-group">
+                <input
+                  type="text"
+                  id="wallet-address"
+                  placeholder="Enter your wallet address"
+                  required
+                />
+              </div>
+              <button type="submit" class="request-button">
+                <span class="button-text">Request Tokens</span>
+                <div class="button-glow"></div>
+              </button>
+            </form>
+
+            <div class="transaction-history">
+              <h3>Recent Transactions</h3>
+              <div class="history-list" id="history-list">
+                <!-- Transactions will be added here -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
