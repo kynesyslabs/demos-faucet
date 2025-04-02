@@ -214,3 +214,34 @@ input:focus {
     font-size: 28px;
   }
 }
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: white;
+  animation: spin 1s ease-in-out infinite;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+.request-button.loading {
+  pointer-events: none;
+  opacity: 0.8;
+}
+
+.request-button.loading .button-text {
+  display: inline-flex;
+  align-items: center;
+}
