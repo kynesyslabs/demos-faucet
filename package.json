@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "start": "webpack serve --mode development",
+    "serve": "npx serve dist -p 4442",
     "build": "webpack --mode production",
     "type-check": "tsc --noEmit"
   },
