@@ -6,7 +6,8 @@
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
     "build": "bun build src/index.ts --outdir dist",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun run src/test.ts"
   },
   "dependencies": {
     "@kynesyslabs/demosdk": "^2.1.6"

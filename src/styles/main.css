@@ -7,6 +7,10 @@
   --accent-glow: rgba(139, 92, 246, 0.3);
   --border-color: #333333;
   --input-bg: #1a1a1a;
+  --error-red: #ef4444;
+  --error-glow: rgba(239, 68, 68, 0.3);
+  --success-green: #22c55e;
+  --success-glow: rgba(34, 197, 94, 0.3);
 }
 
 body {
@@ -244,4 +248,138 @@ input:focus {
 .request-button.loading .button-text {
   display: inline-flex;
   align-items: center;
+}
+
+.transaction-info {
+  margin-top: 24px;
+  animation: slideIn 0.3s ease-out;
+}
+
+.transaction-info.hidden {
+  display: none;
+}
+
+.transaction-card {
+  background: var(--card-bg);
+  border-radius: 16px;
+  padding: 24px;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.transaction-card h3 {
+  margin: 0 0 16px 0;
+  font-size: 18px;
+  color: var(--text-primary);
+}
+
+.transaction-details {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.detail-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detail-row .label {
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.detail-row .value {
+  color: var(--text-primary);
+  font-family: monospace;
+  font-size: 14px;
+  word-break: break-all;
+}
+
+.detail-row .value a {
+  color: var(--accent-purple);
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.detail-row .value a:hover {
+  color: #a78bfa;
+  text-decoration: underline;
+}
+
+.message-card {
+  background: var(--card-bg);
+  border-radius: 16px;
+  padding: 24px;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  margin-top: 24px;
+  animation: slideIn 0.3s ease-out;
+}
+
+.message-card.error {
+  border-color: var(--error-red);
+  box-shadow: 0 4px 6px var(--error-glow);
+}
+
+.message-card.success {
+  border-color: var(--success-green);
+  box-shadow: 0 4px 6px var(--success-glow);
+}
+
+.message-card h3 {
+  margin: 0 0 16px 0;
+  font-size: 18px;
+  color: var(--text-primary);
+}
+
+.message-card.error h3 {
+  color: var(--error-red);
+}
+
+.message-card.success h3 {
+  color: var(--success-green);
+}
+
+.message-content {
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.message-content a {
+  color: var(--accent-purple);
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.message-content a:hover {
+  color: #a78bfa;
+  text-decoration: underline;
+}
+
+.amount-display {
+  background: var(--input-bg);
+  border-radius: 16px;
+  padding: 16px;
+  margin: 16px 0;
+  text-align: center;
+  border: 1px solid var(--border-color);
+}
+
+.amount-display .label {
+  display: block;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  font-size: 14px;
+  text-transform: uppercase;
+}
+
+.amount-display .amount {
+  display: block;
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--accent-purple);
+  text-shadow: 0 0 10px var(--accent-glow);
 }

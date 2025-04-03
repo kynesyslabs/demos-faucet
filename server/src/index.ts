@@ -1,9 +1,10 @@
 import * as demosdk from "@kynesyslabs/demosdk";
 import dotenv from "dotenv";
+import { Safeguards } from "./safeguards";
 
 dotenv.config();
 
-class FaucetServer {
+export class FaucetServer {
   private privateKey: string;
   private publicKey: string;
   public rpcUrl: string;
@@ -11,6 +12,7 @@ class FaucetServer {
   public numberPerInterval: number;
   public maxAmount: number;
   public port: number;
+  private safeguards: Safeguards;
 
   constructor() {
     this.privateKey = process.env.PRIVATE_KEY || "";
@@ -20,10 +22,15 @@ class FaucetServer {
     this.numberPerInterval = parseInt(process.env.NUMBER_PER_INTERVAL || "1");
     this.maxAmount = parseInt(process.env.MAX_AMOUNT || "1000");
     this.port = parseInt(process.env.PORT || "3000");
+    this.safeguards = new Safeguards(this);
   }
 
   public getPrivateKey() {
     return this.privateKey;
+  }
+
+  public setPublicKey(publicKey: string) {
+    this.publicKey = publicKey;
   }
 
   public getPublicKey() {
@@ -32,6 +39,10 @@ class FaucetServer {
 
   public getRpcUrl() {
     return this.rpcUrl;
+  }
+
+  public getSafeguards() {
+    return this.safeguards;
   }
 }
 
@@ -48,7 +59,12 @@ async function transferTokens(
   faucetServer: FaucetServer,
   amount: number,
   to: string
-): Promise<{ success: boolean; message: string; txHash: string }> {
+): Promise<{
+  success: boolean;
+  message: string;
+  txHash: string;
+  confirmationBlock: number;
+}> {
   // Creating a tx
   console.log("Transferring tokens to: " + to);
   let tx = await demos.transfer(to, amount);
@@ -62,9 +78,11 @@ async function transferTokens(
       success: false,
       message: "Transaction failed: " + JSON.stringify(confirmation, null, 2),
       txHash: "",
+      confirmationBlock: -1,
     };
   }
   const txHash = confirmation.response.data.transaction.hash;
+  const confirmationBlock = confirmation.response.data.reference_block;
   console.log("Broadcasting the tx");
   let result = await demos.broadcast(confirmation);
   console.log("Result: " + JSON.stringify(result, null, 2));
@@ -72,6 +90,7 @@ async function transferTokens(
     success: true,
     message: "Transaction successful: " + JSON.stringify(result, null, 2),
     txHash: txHash,
+    confirmationBlock: confirmationBlock,
   };
 }
 
@@ -94,9 +113,10 @@ async function server() {
         });
       }
 
-      // Your API endpoints here
+      // Get client IP
+      const ip = req.headers.get("x-forwarded-for") || "unknown";
 
-      // Basic test endpoint
+      // Your API endpoints here
       if (req.url.endsWith("/api/test")) {
         return new Response("Hello World", { status: 200 });
       }
@@ -106,23 +126,94 @@ async function server() {
       }
 
       if (req.url.endsWith("/api/balance")) {
-        // TODO: Your balance logic using @kynesyslabs/demosdk
+        console.log("Getting balance for: " + faucetServer.getPublicKey());
+        let addrInfo = await demos.getAddressInfo(faucetServer.getPublicKey());
+        //let balance = addrInfo?.balance;
+        console.log("Address info: ");
+        console.log(addrInfo);
+
+        let balance = addrInfo?.balance;
+        // Convert bigint to number
+        let intBalance = Number(balance);
+        return Response.json({
+          status: 200,
+          body: {
+            balance: intBalance,
+          },
+        });
       }
 
       if (req.url.endsWith("/api/request")) {
         // Getting the request body
         let body = await req.json();
-        // TODO Safeguards and ENV variables dependant logic
-        // Transferring the tokens
+
+        // Check safeguards
+        const safeguards = faucetServer.getSafeguards();
+        const checkResult = await safeguards.checkSafeguards(
+          body.address,
+          body.amount,
+          ip
+        );
+
+        if (!checkResult.allowed) {
+          return Response.json({
+            status: 400,
+            body: checkResult.message,
+          });
+        }
+
+        // Transfer the tokens
         let result = await transferTokens(
           demos,
           faucetServer,
           body.amount,
           body.address
         );
-        // Returning the result (txHash or message if failed)
-        return new Response(result.txHash ? result.txHash : result.message, {
-          status: result.success ? 200 : 400,
+
+        let responseBody = {};
+        if (result.success) {
+          responseBody = {
+            status: 200,
+            body: {
+              txHash: result.txHash,
+              confirmationBlock: result.confirmationBlock,
+              message: result.message,
+            },
+          };
+        } else {
+          responseBody = {
+            status: 400,
+            body: result.message,
+          };
+        }
+        return Response.json(responseBody);
+      }
+
+      if (req.url.endsWith("/api/stats/address")) {
+        const url = new URL(req.url);
+        const address = url.searchParams.get("address");
+
+        if (!address) {
+          return Response.json({
+            status: 400,
+            body: "Address parameter is required",
+          });
+        }
+
+        const stats = await faucetServer
+          .getSafeguards()
+          .getAddressStats(address);
+        return Response.json({
+          status: 200,
+          body: stats,
+        });
+      }
+
+      if (req.url.endsWith("/api/stats/global")) {
+        const stats = await faucetServer.getSafeguards().getGlobalStats();
+        return Response.json({
+          status: 200,
+          body: stats,
         });
       }
 
@@ -159,6 +250,7 @@ if (!publicKey) {
 console.log(
   "Connected to the network and wallet: " + publicKey.toString("hex")
 );
+faucetServer.setPublicKey(publicKey.toString("hex"));
 
 // Starting the server
 server();

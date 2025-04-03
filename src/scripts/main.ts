@@ -1,6 +1,7 @@
 import "../styles/main.css";
 class App {
   public remoteBackendUrl: string;
+  private readonly FIXED_AMOUNT: number = 10; // Fixed amount of 10 DEMOS
 
   constructor() {
     this.remoteBackendUrl = process.env.REMOTE_BACKEND_URL || "";
@@ -25,12 +26,24 @@ class App {
     }
   }
 
-  private init(): void {
+  private async init(): Promise<void> {
     const app = document.getElementById("app");
     if (app) {
-      //app.innerHTML = "<h1>TypeScript App Running!</h1>";
-      //app.innerHTML += `<p>REMOTE_BACKEND_URL: ${process.env.REMOTE_BACKEND_URL}</p>`;
-      // TODO Balance display
+      // Add balance display
+      const balanceDisplay = document.createElement("div");
+      balanceDisplay.className = "balance-display";
+      balanceDisplay.innerHTML = `
+        <div class="balance-inner">
+          <span class="label">Available Balance</span>
+          <span class="amount">Loading...</span>
+        </div>
+      `;
+      app
+        .querySelector(".faucet-content")
+        ?.insertBefore(balanceDisplay, app.querySelector(".faucet-form"));
+
+      // Initial balance fetch
+      await this.updateBalance();
     }
 
     // Faucet form and its event listener
@@ -41,8 +54,63 @@ class App {
         const address = document.getElementById(
           "wallet-address"
         ) as HTMLInputElement;
-        this.requestTokens(address.value, 1000);
+
+        // Basic validation
+        if (!address.value) {
+          this.showError("Please enter a wallet address");
+          return;
+        }
+
+        this.requestTokens(address.value, this.FIXED_AMOUNT);
       });
+    }
+  }
+
+  private async updateBalance(): Promise<void> {
+    try {
+      const response = await fetch(`${this.remoteBackendUrl}/api/balance`);
+      if (response.ok) {
+        const data = await response.json();
+        console.log("Balance response: " + JSON.stringify(data, null, 2));
+        const balance = data.body.balance * 10; // Multiply by 10
+        console.log("Balance: " + balance);
+        const balanceDisplay = document.querySelector(
+          ".balance-display .amount"
+        );
+        if (balanceDisplay) {
+          balanceDisplay.textContent = `${balance} DEMOS`;
+        }
+      } else {
+        console.error("Failed to fetch balance");
+      }
+    } catch (error) {
+      console.error("Error fetching balance:", error);
+    }
+  }
+
+  private showError(message: string): void {
+    const messageContainer = document.getElementById("message-container");
+    const messageCard = messageContainer?.querySelector(".message-card");
+    const messageContent = document.getElementById("message-content");
+
+    if (messageContainer && messageCard && messageContent) {
+      messageCard.classList.remove("success");
+      messageCard.classList.add("error");
+      messageContent.innerHTML = message;
+      messageContainer.classList.remove("hidden");
+    }
+  }
+
+  private showSuccess(message: string): void {
+    const messageContainer = document.getElementById("message-container");
+    const messageCard = messageContainer?.querySelector(".message-card");
+    const messageContent = document.getElementById("message-content");
+
+    if (messageContainer && messageCard && messageContent) {
+      messageCard.classList.remove("error");
+      messageCard.classList.add("success");
+      messageContent.innerHTML = message;
+      messageContainer.classList.remove("hidden");
     }
   }
 
@@ -55,11 +123,21 @@ class App {
       ".request-button"
     ) as HTMLButtonElement;
     const buttonText = submitButton.querySelector(".button-text");
+    const messageContainer = document.getElementById("message-container");
+    const messageCard = messageContainer?.querySelector(".message-card");
+    const messageContent = document.getElementById("message-content");
 
-    if (submitButton && buttonText) {
+    if (
+      submitButton &&
+      buttonText &&
+      messageContainer &&
+      messageCard &&
+      messageContent
+    ) {
       // Show loading state
       submitButton.classList.add("loading");
       buttonText.innerHTML = '<span class="spinner"></span>Processing...';
+      messageContainer.classList.add("hidden");
 
       try {
         // Add timeout to the fetch request
@@ -74,18 +152,63 @@ class App {
 
         clearTimeout(timeoutId);
 
+        const responseData = await result.json();
+
         if (!result.ok) {
-          const errorData = await result.json().catch(() => ({}));
+          // Handle specific safeguard errors
+          if (responseData.body.includes("exceeds maximum allowed amount")) {
+            this.showError(
+              "Requested amount exceeds the maximum allowed limit"
+            );
+          } else if (responseData.body.includes("maximum number of requests")) {
+            this.showError(
+              "You have reached the maximum number of requests for this time period"
+            );
+          } else if (
+            responseData.body.includes("would exceed the maximum amount limit")
+          ) {
+            this.showError(
+              "This request would exceed your total amount limit for this time period"
+            );
+          } else {
+            this.showError(
+              responseData.body || `Server returned ${result.status}`
+            );
+          }
           throw new Error(
-            errorData.message || `Server returned ${result.status}`
+            responseData.body || `Server returned ${result.status}`
           );
         }
+
+        // Show transaction info
+        const transactionInfo = document.getElementById("transaction-info");
+        const txHashElement = document.getElementById("tx-hash");
+        const confirmationBlockElement =
+          document.getElementById("confirmation-block");
+
+        if (transactionInfo && txHashElement && confirmationBlockElement) {
+          txHashElement.innerHTML = `<a href="https://explorer.demos.sh/transactions/${responseData.body.txHash}" target="_blank" rel="noopener noreferrer">${responseData.body.txHash}</a>`;
+          confirmationBlockElement.textContent =
+            responseData.body.confirmationBlock.toString();
+          transactionInfo.classList.remove("hidden");
+        }
+
+        // Show success message
+        this.showSuccess("Tokens requested successfully!");
+
+        // Update balance after successful request
+        await this.updateBalance();
 
         buttonText.textContent = "Success!";
         setTimeout(() => {
           buttonText.textContent = "Request Tokens";
           submitButton.classList.remove("loading");
-        }, 10000); // 10 seconds
+          // Hide messages after 10 seconds
+          messageContainer.classList.add("hidden");
+          if (transactionInfo) {
+            transactionInfo.classList.add("hidden");
+          }
+        }, 10000);
       } catch (error) {
         let errorMessage = "Error - Try Again";
 
@@ -99,6 +222,7 @@ class App {
           }
         }
 
+        this.showError(errorMessage);
         buttonText.textContent = errorMessage;
         submitButton.classList.remove("loading");
         console.error("Error requesting tokens:", error);

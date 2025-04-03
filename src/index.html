@@ -19,13 +19,6 @@
           </div>
 
           <div class="faucet-content">
-            <div class="balance-display">
-              <div class="balance-inner">
-                <span class="label">Available Balance</span>
-                <span class="amount">1000 DEMOS</span>
-              </div>
-            </div>
-
             <form id="faucet-form" class="faucet-form">
               <div class="input-group">
                 <input
@@ -35,11 +28,38 @@
                   required
                 />
               </div>
+              <div class="amount-display">
+                <span class="label">Amount to receive:</span>
+                <span class="amount">10 DEMOS</span>
+              </div>
               <button type="submit" class="request-button">
                 <span class="button-text">Request Tokens</span>
                 <div class="button-glow"></div>
               </button>
             </form>
+
+            <div id="message-container" class="message-container hidden">
+              <div class="message-card">
+                <h3>Status</h3>
+                <div class="message-content" id="message-content"></div>
+              </div>
+            </div>
+
+            <div id="transaction-info" class="transaction-info hidden">
+              <div class="transaction-card">
+                <h3>Transaction Details</h3>
+                <div class="transaction-details">
+                  <div class="detail-row">
+                    <span class="label">Transaction Hash:</span>
+                    <span class="value" id="tx-hash"></span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="label">Confirmation Block:</span>
+                    <span class="value" id="confirmation-block"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
 
             <div class="transaction-history">
               <h3>Recent Transactions</h3>
