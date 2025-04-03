@@ -1,6 +1,6 @@
 # demos-faucet
-A faucet for the Demos Network
 
+A faucet for the Demos Network
 
 ## Structure
 
@@ -9,7 +9,8 @@ A faucet for the Demos Network
 The server is the backend of the Demos faucet.
 It takes an `.env` file that defines the private key of the Demos wallet to be used by the frontend faucet and a couple of other options.
 
-It is launched with 
+It is launched with
+
 ```bash
 bun install
 bun run src/index.ts
@@ -21,7 +22,29 @@ The frontend needs to be configured with the `.env` file to call the right optio
 
 To run it, execute:
 
-``` bash
+```bash
 bun install
 bun start
 ```
+
+#### On webpack problems (like segfault)
+
+**NOTE:** This is valid only for the frontend
+
+On your local working environment, set everything (included .env) as it would be on the remote server or non working environment.
+
+Then run:
+
+```bash
+bun run build
+```
+
+and commit/copy files in `dist/` to your non working environment.
+
+Then, you can run:
+
+```bash
+bun run serve
+```
+
+To use the prebuilt files on production.
