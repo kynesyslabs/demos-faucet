@@ -135,7 +135,15 @@ async function server() {
 
       // Your API endpoints here
       if (req.url.endsWith("/api/test")) {
-        return new Response("Hello World", { status: 200 });
+        console.log("Test endpoint hit");
+        return new Response("Hello World", {
+          status: 200,
+          headers: {
+            "Access-Control-Allow-Origin": "https://faucet.demos.sh",
+            "Access-Control-Allow-Methods": "GET, POST",
+            "Access-Control-Allow-Headers": "Content-Type",
+          },
+        });
       }
 
       if (req.url.endsWith("/api/faucet")) {
@@ -145,19 +153,26 @@ async function server() {
       if (req.url.endsWith("/api/balance")) {
         console.log("Getting balance for: " + faucetServer.getPublicKey());
         let addrInfo = await demos.getAddressInfo(faucetServer.getPublicKey());
-        //let balance = addrInfo?.balance;
         console.log("Address info: ");
         console.log(addrInfo);
 
         let balance = addrInfo?.balance;
-        // Convert bigint to number
         let intBalance = Number(balance);
-        return Response.json({
-          status: 200,
-          body: {
-            balance: intBalance,
+        return Response.json(
+          {
+            status: 200,
+            body: {
+              balance: intBalance,
+            },
           },
-        });
+          {
+            headers: {
+              "Access-Control-Allow-Origin": "https://faucet.demos.sh",
+              "Access-Control-Allow-Methods": "GET, POST",
+              "Access-Control-Allow-Headers": "Content-Type",
+            },
+          }
+        );
       }
 
       if (req.url.endsWith("/api/request")) {
