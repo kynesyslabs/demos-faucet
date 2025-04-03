@@ -218,7 +218,13 @@ async function server() {
             body: result.message,
           };
         }
-        return Response.json(responseBody);
+        return Response.json(responseBody, {
+          headers: {
+            "Access-Control-Allow-Origin": "https://faucet.demos.sh",
+            "Access-Control-Allow-Methods": "GET, POST",
+            "Access-Control-Allow-Headers": "Content-Type",
+          },
+        });
       }
 
       if (req.url.endsWith("/api/stats/address")) {
