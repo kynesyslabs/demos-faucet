@@ -10,7 +10,8 @@
     "test": "bun run src/test.ts"
   },
   "dependencies": {
-    "@kynesyslabs/demosdk": "^2.1.6"
+    "@kynesyslabs/demosdk": "^2.1.6",
+    "cors": "^2.8.5"
   },
   "devDependencies": {
     "bun-types": "latest",
