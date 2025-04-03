@@ -1,8 +1,25 @@
 import * as demosdk from "@kynesyslabs/demosdk";
 import dotenv from "dotenv";
 import { Safeguards } from "./safeguards";
+import express from "express";
+import cors from "cors";
 
 dotenv.config();
+
+const app = express();
+const port = process.env.PORT || 3000;
+
+// Enable CORS for all routes
+app.use(
+  cors({
+    origin: ["https://faucet.demos.sh", "http://localhost:4442"], // Add your frontend domains
+    methods: ["GET", "POST"],
+    allowedHeaders: ["Content-Type"],
+  })
+);
+
+// Parse JSON bodies
+app.use(express.json());
 
 export class FaucetServer {
   private privateKey: string;
