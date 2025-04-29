@@ -2,7 +2,7 @@ import * as demosdk from "@kynesyslabs/demosdk";
 import dotenv from "dotenv";
 import { Safeguards } from "./safeguards";
 import express from "express";
-import cors from "cors";
+import cors from "cors"
 
 dotenv.config();
 
