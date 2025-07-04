@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  client:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    ports:
+      - "8080:8080"
+    depends_on:
+      - server
+    environment:
+      - NODE_ENV=development
+      - REMOTE_BACKEND_URL=http://server:3000
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./server/faucet.db:/app/faucet.db
+    environment:
+      - NODE_ENV=production
