@@ -9,8 +9,8 @@ RUN yarn install
 
 COPY . .
 
-RUN yarn build
+RUN npx webpack --mode production
 
-EXPOSE 8080
+EXPOSE 4442
 
 CMD ["yarn", "serve"]
