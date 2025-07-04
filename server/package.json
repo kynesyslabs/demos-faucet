@@ -10,8 +10,13 @@
     "test": "bun run src/test.ts"
   },
   "dependencies": {
-    "@kynesyslabs/demosdk": "^2.1.6",
-    "cors": "^2.8.5"
+    "@kynesyslabs/demosdk": "^2.2.70",
+    "cors": "^2.8.5",
+    "express-rate-limit": "^7.0.0",
+    "express-slow-down": "^2.0.0",
+    "express-validator": "^7.0.0",
+    "helmet": "^7.0.0",
+    "winston": "^3.11.0"
   },
   "devDependencies": {
     "bun-types": "latest",

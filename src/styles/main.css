@@ -63,6 +63,70 @@ body {
   box-shadow: 0 0 20px var(--accent-glow);
 }
 
+.faucet-status {
+  background: var(--input-bg);
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 32px;
+  border: 1px solid var(--border-color);
+}
+
+.status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.status-row:last-child {
+  margin-bottom: 0;
+}
+
+.status-label {
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.status-value {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.status-value.connected {
+  color: var(--success-green);
+}
+
+.status-value.error,
+.status-value.offline {
+  color: var(--error-red);
+}
+
+.status-value.fetching {
+  color: var(--accent-purple);
+}
+
+.status-value.low-balance {
+  color: #fbbf24;
+}
+
+.status-value span {
+  cursor: pointer;
+}
+
+.clickable-address {
+  cursor: pointer;
+  transition: color 0.2s ease;
+  border-bottom: 1px dashed var(--text-secondary);
+}
+
+.clickable-address:hover {
+  color: var(--accent-purple);
+  border-bottom-color: var(--accent-purple);
+}
+
 .balance-display {
   background: var(--input-bg);
   border-radius: 16px;

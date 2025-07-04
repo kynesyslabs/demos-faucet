@@ -1,0 +1,52 @@
+# Frontend Dockerfile using Bun
+FROM oven/bun:1 as builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json bun.lockb* ./
+
+# Install dependencies
+RUN bun install --frozen-lockfile
+
+# Copy source code
+COPY src/ ./src/
+COPY tsconfig.json ./
+
+# Build the frontend
+RUN bun run build
+
+# Production stage
+FROM oven/bun:1-slim
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json ./
+
+# Install production dependencies only
+RUN bun install --production --frozen-lockfile
+
+# Copy built assets and server
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/src/server.ts ./src/
+COPY --from=builder /app/src/index.html ./src/
+COPY --from=builder /app/src/styles ./src/styles
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 faucet
+
+# Set ownership
+RUN chown -R faucet:nodejs /app
+USER faucet
+
+# Expose port
+EXPOSE 4442
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:4442/health || exit 1
+
+# Start the server
+CMD ["bun", "run", "src/server.ts"]

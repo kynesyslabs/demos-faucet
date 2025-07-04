@@ -8,14 +8,31 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap"
     />
+    <link rel="stylesheet" href="/styles/main.css" />
   </head>
   <body>
+    <script type="module" src="/dist/main.js"></script>
     <div id="app">
       <div class="container">
         <div class="faucet-card">
           <div class="faucet-header">
             <h1>Demos Faucet</h1>
             <div class="network-badge">Testnet</div>
+          </div>
+
+          <div class="faucet-status">
+            <div class="status-row">
+              <span class="status-label">Faucet Address:</span>
+              <span class="status-value" id="faucet-address">Loading...</span>
+            </div>
+            <div class="status-row">
+              <span class="status-label">Available Balance:</span>
+              <span class="status-value" id="faucet-balance">Loading...</span>
+            </div>
+            <div class="status-row">
+              <span class="status-label">Connection Status:</span>
+              <span class="status-value" id="connection-status">Connecting...</span>
+            </div>
           </div>
 
           <div class="faucet-content">

@@ -6,6 +6,7 @@ WORKDIR /app
 
 COPY package*.json ./
 RUN yarn install
+RUN yarn add webpack@latest webpack-cli@latest
 
 COPY . .
 
