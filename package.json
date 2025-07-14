@@ -8,7 +8,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@kynesyslabs/demosdk": "^2.1.6",
+    "@kynesyslabs/demosdk": "^2.2.71",
     "axios": "^1.6.0",
     "crypto": "^1.0.1",
     "dotenv": "^16.4.7",

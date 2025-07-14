@@ -22,7 +22,7 @@ app.use(
 app.use(express.json());
 
 export class FaucetServer {
-  private privateKey: string;
+  private mnemonic: string;
   private publicKey: string;
   public rpcUrl: string;
   public timeInterval: number;
@@ -32,8 +32,8 @@ export class FaucetServer {
   private safeguards: Safeguards;
 
   constructor() {
-    this.privateKey = process.env.PRIVATE_KEY || "";
-    this.publicKey = process.env.PUBLIC_KEY || ""; // TODO Derive from private key
+    this.mnemonic = process.env.MNEMONIC || "";
+    this.publicKey = process.env.PUBLIC_KEY || ""; // TODO Derive from mnemonic
     this.rpcUrl = process.env.RPC_URL || "";
     this.timeInterval = parseInt(process.env.TIME_INTERVAL || "86400");
     this.numberPerInterval = parseInt(process.env.NUMBER_PER_INTERVAL || "1");
@@ -42,8 +42,8 @@ export class FaucetServer {
     this.safeguards = new Safeguards(this);
   }
 
-  public getPrivateKey() {
-    return this.privateKey;
+  public getMnemonic() {
+    return this.mnemonic;
   }
 
   public setPublicKey(publicKey: string) {
@@ -278,9 +278,9 @@ let demos = new demosdk.websdk.Demos();
 // Connecting to the network
 await demos.connect(faucetServer.getRpcUrl());
 // Connecting to the wallet
-let pk = faucetServer.getPrivateKey();
-console.log("Trying to connect with private key: " + pk);
-await demos.connectWallet(pk);
+let mnemonic = faucetServer.getMnemonic();
+console.log("Trying to connect with mnemonic");
+await demos.connectWallet(mnemonic);
 let publicKey = demos.keypair?.publicKey;
 if (!publicKey) {
   throw new Error("Failed to connect to the wallet");
