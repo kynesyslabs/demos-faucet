@@ -82,33 +82,33 @@ async function transferTokens(
   txHash: string;
   confirmationBlock: number;
 }> {
-  // Creating a tx
-  console.log("Transferring tokens to: " + to);
-  let tx = await demos.transfer(to, amount);
-  console.log("Confirming and broadcasting the tx");
-  let confirmation = await demos.confirm(tx);
-  console.log("Confirmation: " + JSON.stringify(confirmation, null, 2));
-  if (!confirmation.response.data.valid) {
-    console.log("Transaction failed: ");
-    console.log(JSON.stringify(confirmation, null, 2));
+  try {
+    console.log("Transferring tokens to: " + to);
+    
+    // Get current nonce
+    const fromAddress = faucetServer.getPublicKey();
+    const nonce = await demos.getNonce(fromAddress);
+    console.log(`Using nonce: ${nonce}`);
+    
+    // Send transaction using simplified method (like working tools)
+    const txHash = await demos.send(to, amount, nonce);
+    console.log(`Transaction sent with hash: ${txHash}`);
+    
+    return {
+      success: true,
+      message: `Transaction successful: ${txHash}`,
+      txHash: txHash,
+      confirmationBlock: -1, // Not available with send method
+    };
+  } catch (error) {
+    console.error("Transaction failed:", error);
     return {
       success: false,
-      message: "Transaction failed: " + JSON.stringify(confirmation, null, 2),
+      message: `Transaction failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
       txHash: "",
       confirmationBlock: -1,
     };
   }
-  const txHash = confirmation.response.data.transaction.hash;
-  const confirmationBlock = confirmation.response.data.reference_block;
-  console.log("Broadcasting the tx");
-  let result = await demos.broadcast(confirmation);
-  console.log("Result: " + JSON.stringify(result, null, 2));
-  return {
-    success: true,
-    message: "Transaction successful: " + JSON.stringify(result, null, 2),
-    txHash: txHash,
-    confirmationBlock: confirmationBlock,
-  };
 }
 
 // SECTION Server logic
@@ -157,12 +157,11 @@ async function server() {
         console.log(addrInfo);
 
         let balance = addrInfo?.balance;
-        let intBalance = Number(balance);
         return Response.json(
           {
             status: 200,
             body: {
-              balance: intBalance,
+              balance: balance,
             },
           },
           {
@@ -208,7 +207,6 @@ async function server() {
             status: 200,
             body: {
               txHash: result.txHash,
-              confirmationBlock: result.confirmationBlock,
               message: result.message,
             },
           };
@@ -280,15 +278,9 @@ await demos.connect(faucetServer.getRpcUrl());
 // Connecting to the wallet
 let mnemonic = faucetServer.getMnemonic();
 console.log("Trying to connect with mnemonic");
-await demos.connectWallet(mnemonic);
-let publicKey = demos.keypair?.publicKey;
-if (!publicKey) {
-  throw new Error("Failed to connect to the wallet");
-}
-console.log(
-  "Connected to the network and wallet: " + publicKey.toString("hex")
-);
-faucetServer.setPublicKey(publicKey.toString("hex"));
+let walletAddress = await demos.connectWallet(mnemonic);
+console.log("Connected to the network and wallet: " + walletAddress);
+faucetServer.setPublicKey(walletAddress);
 
 // Starting the server
 server();
