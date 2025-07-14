@@ -85,7 +85,7 @@ app.use(
 app.use(express.json({ limit: '10mb' }));
 
 export class FaucetServer {
-  private privateKey: string;
+  private mnemonic: string;
   private publicKey: string;
   public rpcUrl: string;
   public timeInterval: number;
@@ -100,8 +100,8 @@ export class FaucetServer {
   } | null = null;
 
   constructor() {
-    this.privateKey = process.env.PRIVATE_KEY || "";
-    this.publicKey = process.env.PUBLIC_KEY || ""; // TODO Derive from private key
+    this.mnemonic = process.env.MNEMONIC || "";
+    this.publicKey = process.env.PUBLIC_KEY || ""; // TODO Derive from mnemonic
     this.rpcUrl = process.env.RPC_URL || "";
     this.timeInterval = parseInt(process.env.TIME_INTERVAL || "86400");
     this.numberPerInterval = parseInt(process.env.NUMBER_PER_INTERVAL || "1");
@@ -110,8 +110,8 @@ export class FaucetServer {
     this.safeguards = new Safeguards(this);
   }
 
-  public getPrivateKey() {
-    return this.privateKey;
+  public getMnemonic() {
+    return this.mnemonic;
   }
 
   public setPublicKey(publicKey: string) {
@@ -175,179 +175,36 @@ async function transferTokens(
   txHash: string;
   confirmationBlock: number;
 }> {
-  const fromPublicKey = faucetServer.getPublicKey();
-  
-  logger.info("=== STARTING TOKEN TRANSFER ===", {
-    from: fromPublicKey,
-    to: to,
-    amount: amount,
-    timestamp: new Date().toISOString()
-  });
-
   try {
-    // Check sender balance first
-    logger.info("Checking sender balance before transfer...");
-    const senderInfo = await demos.getAddressInfo(fromPublicKey);
-    const senderBalance = Number(senderInfo?.balance || 0);
-    logger.info("Sender balance check:", {
-      senderAddress: fromPublicKey,
-      currentBalance: senderBalance.toString(),
-      requestedAmount: amount,
-      sufficientFunds: senderBalance >= amount
-    });
-
-    if (senderBalance < amount) {
-      logger.error("INSUFFICIENT FUNDS", {
-        required: amount,
-        available: senderBalance.toString(),
-        shortfall: amount - senderBalance
-      });
-      return {
-        success: false,
-        message: `Insufficient funds: need ${amount}, have ${senderBalance}`,
-        txHash: "",
-        confirmationBlock: -1,
-      };
-    }
-
-    // Check recipient address format
-    logger.info("Validating recipient address format...");
-    if (!/^[a-fA-F0-9]{64}$/.test(to)) {
-      logger.error("Invalid recipient address format:", to);
-      return {
-        success: false,
-        message: "Invalid recipient address format",
-        txHash: "",
-        confirmationBlock: -1,
-      };
-    }
-
-    // Creating transaction
-    logger.info("Creating transfer transaction...");
-    let tx = await demos.transfer(to, amount);
-    logger.info("Transaction created successfully:", {
-      txType: "transfer",
-      recipient: to,
-      amount: amount,
-      txObject: tx ? "created" : "failed"
-    });
-
-    if (!tx) {
-      logger.error("Failed to create transaction");
-      return {
-        success: false,
-        message: "Failed to create transaction",
-        txHash: "",
-        confirmationBlock: -1,
-      };
-    }
-
-    // Confirming transaction
-    logger.info("Confirming transaction with network...");
-    let confirmation = await demos.confirm(tx);
-    logger.info("Transaction confirmation response:", {
-      valid: confirmation?.response?.data?.valid,
-      referenceBlock: confirmation?.response?.data?.reference_block,
-      fullResponse: JSON.stringify(confirmation, null, 2)
-    });
-
-    if (!confirmation?.response?.data?.valid) {
-      logger.error("Transaction validation failed:", {
-        confirmationData: confirmation?.response?.data,
-        fullConfirmation: JSON.stringify(confirmation, null, 2)
-      });
-      return {
-        success: false,
-        message: "Transaction validation failed: " + JSON.stringify(confirmation?.response?.data, null, 2),
-        txHash: "",
-        confirmationBlock: -1,
-      };
-    }
-
-    const txHash = confirmation.response.data.transaction.hash;
-    const confirmationBlock = confirmation.response.data.reference_block;
+    console.log("Transferring tokens to: " + to);
     
-    logger.info("Transaction validated successfully:", {
-      txHash: txHash,
-      confirmationBlock: confirmationBlock,
-      networkState: "validated"
-    });
-
-    // Broadcasting transaction
-    logger.info("Broadcasting transaction to network...");
-    let result = await demos.broadcast(confirmation);
-    logger.info("Broadcast result:", {
-      success: result ? "broadcasted" : "failed",
-      resultData: JSON.stringify(result, null, 2)
-    });
-
-    // Verify transaction was accepted
-    if (result) {
-      logger.info("=== TRANSFER COMPLETED SUCCESSFULLY ===", {
-        txHash: txHash,
-        from: fromPublicKey,
-        to: to,
-        amount: amount,
-        confirmationBlock: confirmationBlock,
-        broadcastResult: result
-      });
-    }
-
+    // Get current nonce
+    const fromAddress = faucetServer.getPublicKey();
+    const nonce = await demos.getNonce(fromAddress);
+    console.log(`Using nonce: ${nonce}`);
+    
+    // Send transaction using simplified method (like working tools)
+    const txHash = await demos.send(to, amount, nonce);
+    console.log(`Transaction sent with hash: ${txHash}`);
+    
     return {
       success: true,
-      message: "Transaction broadcast successfully",
+      message: `Transaction successful: ${txHash}`,
       txHash: txHash,
-      confirmationBlock: confirmationBlock,
+      confirmationBlock: -1, // Not available with send method
     };
-
   } catch (error) {
-    logger.error("=== TRANSFER FAILED ===", {
-      error: error.message,
-      stack: error.stack,
-      from: fromPublicKey,
-      to: to,
-      amount: amount,
-      timestamp: new Date().toISOString()
-    });
-
+    console.error("Transaction failed:", error);
     return {
       success: false,
-      message: "Transfer failed: " + error.message,
+      message: `Transaction failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
       txHash: "",
       confirmationBlock: -1,
     };
   }
 }
 
-/**
- * Periodic balance updater
- */
-async function updateBalanceCache(faucetServer: FaucetServer, demos: demosdk.websdk.Demos) {
-  try {
-    const publicKey = faucetServer.getPublicKey();
-    if (!publicKey || !demos || !demos.rpc) {
-      logger.warn("Skipping balance update - wallet or RPC not ready");
-      return;
-    }
-
-    logger.debug("Updating balance cache...");
-    const addrInfo = await demos.getAddressInfo(publicKey);
-    
-    if (addrInfo && addrInfo.balance !== undefined) {
-      const rawBalance = addrInfo.balance;
-      const rawBalanceString = rawBalance.toString(); // Convert BigInt to string
-      faucetServer.setCachedBalance(rawBalanceString, addrInfo);
-    } else {
-      logger.warn("Failed to get address info for balance update");
-    }
-  } catch (error) {
-    logger.error("Error updating balance cache:", {
-      error: error.message,
-      stack: error.stack
-    });
-  }
-}
-
+// SECTION Server logic
 /**
  * Starts the periodic balance updater
  */
@@ -403,44 +260,37 @@ function setupRoutes(faucetServer: FaucetServer, demos: demosdk.websdk.Demos) {
         });
       }
 
-      // Check if cache is recent (within last 30 seconds)
-      const cacheAge = Date.now() - cachedBalance.lastUpdated;
-      const isStale = cacheAge > 30000;
-      
-      logger.info(`Returning cached balance: ${cachedBalance.balance} (cache age: ${Math.round(cacheAge/1000)}s)`);
-      
-      res.json({
-        status: 200,
-        body: {
-          balance: cachedBalance.balance,
-          publicKey: publicKey,
-          addressInfo: cachedBalance.addressInfo,
-          cached: true,
-          cacheAge: Math.round(cacheAge/1000),
-          isStale: isStale,
-          lastUpdated: new Date(cachedBalance.lastUpdated).toISOString()
-        },
-      });
-    } catch (error) {
-      logger.error("Error getting cached balance:", {
-        error: error.message,
-        stack: error.stack,
-        publicKey: faucetServer.getPublicKey()
-      });
-      res.status(500).json({ 
-        error: "Failed to get balance: " + error.message,
-        status: 500,
-        body: { balance: 0 }
-      });
-    }
-  });
+      if (req.url.endsWith("/api/faucet")) {
+        // TODO: Your faucet logic using @kynesyslabs/demosdk
+      }
 
-  app.post("/api/request", faucetRateLimit, validateFaucetRequest, async (req, res) => {
-    try {
-      const { address, amount } = req.body;
-      const ip = getClientIP(req);
-      
-      logger.info("Faucet request", { address, amount, ip });
+      if (req.url.endsWith("/api/balance")) {
+        console.log("Getting balance for: " + faucetServer.getPublicKey());
+        let addrInfo = await demos.getAddressInfo(faucetServer.getPublicKey());
+        console.log("Address info: ");
+        console.log(addrInfo);
+
+        let balance = addrInfo?.balance;
+        return Response.json(
+          {
+            status: 200,
+            body: {
+              balance: balance,
+            },
+          },
+          {
+            headers: {
+              "Access-Control-Allow-Origin": "https://faucet.demos.sh",
+              "Access-Control-Allow-Methods": "GET, POST",
+              "Access-Control-Allow-Headers": "Content-Type",
+            },
+          }
+        );
+      }
+
+      if (req.url.endsWith("/api/request")) {
+        // Getting the request body
+        let body = await req.json();
 
       // Check safeguards
       const safeguards = faucetServer.getSafeguards();
@@ -457,38 +307,33 @@ function setupRoutes(faucetServer: FaucetServer, demos: demosdk.websdk.Demos) {
       // Transfer the tokens
       let result = await transferTokens(demos, faucetServer, amount, address);
 
-      if (result.success) {
-        logger.info("Tokens transferred successfully", { 
-          address, 
-          amount, 
-          txHash: result.txHash,
-          confirmationBlock: result.confirmationBlock 
-        });
-        
-        res.json({
-          status: 200,
-          body: {
-            txHash: result.txHash,
-            confirmationBlock: result.confirmationBlock,
-            message: result.message,
+        let responseBody = {};
+        if (result.success) {
+          responseBody = {
+            status: 200,
+            body: {
+              txHash: result.txHash,
+              message: result.message,
+            },
+          };
+        } else {
+          responseBody = {
+            status: 400,
+            body: result.message,
+          };
+        }
+        return Response.json(responseBody, {
+          headers: {
+            "Access-Control-Allow-Origin": "https://faucet.demos.sh",
+            "Access-Control-Allow-Methods": "GET, POST",
+            "Access-Control-Allow-Headers": "Content-Type",
           },
         });
-      } else {
-        logger.error("Token transfer failed", { address, amount, error: result.message });
-        res.status(400).json({
-          status: 400,
-          body: result.message,
-        });
       }
-    } catch (error) {
-      logger.error("Error processing faucet request:", error);
-      res.status(500).json({ error: "Internal server error" });
-    }
-  });
 
-  app.get("/api/stats/address", async (req, res) => {
-    try {
-      const address = req.query.address as string;
+      if (req.url.endsWith("/api/stats/address")) {
+        const url = new URL(req.url);
+        const address = url.searchParams.get("address");
 
       if (!address) {
         return res.status(400).json({
@@ -552,96 +397,18 @@ async function server() {
 
 // SECTION Initialization logic
 
-async function initializeFaucet() {
-  try {
-    logger.info("Initializing faucet server...");
-    
-    // Initialize the faucet server
-    const faucetServer = new FaucetServer();
-    logger.info("Faucet server configuration:", {
-      rpcUrl: faucetServer.getRpcUrl(),
-      maxAmount: faucetServer.maxAmount,
-      timeInterval: faucetServer.timeInterval,
-      numberPerInterval: faucetServer.numberPerInterval,
-      port: faucetServer.port
-    });
-    
-    // Initialize the demos instance
-    logger.info("Creating Demos SDK instance...");
-    let demos = new demosdk.websdk.Demos();
-    
-    // Connecting to the network
-    logger.info("Connecting to RPC network: " + faucetServer.getRpcUrl());
-    await demos.connect(faucetServer.getRpcUrl());
-    logger.info("Successfully connected to RPC network");
-    
-    // Connecting to the wallet
-    let pk = faucetServer.getPrivateKey();
-    if (!pk) {
-      throw new Error("PRIVATE_KEY not found in environment variables");
-    }
-    
-    logger.info("Connecting wallet with private key (length: " + pk.length + ")");
-    await demos.connectWallet(pk);
-    
-    let publicKey = demos.keypair?.publicKey;
-    if (!publicKey) {
-      throw new Error("Failed to connect to the wallet - no public key generated");
-    }
-    
-    const publicKeyHex = publicKey.toString("hex");
-    logger.info("Successfully connected to wallet. Public key: " + publicKeyHex);
-    faucetServer.setPublicKey(publicKeyHex);
-    
-    // Test the connection by fetching balance and populate initial cache
-    logger.info("Testing connection by fetching initial balance...");
-    try {
-      let addrInfo = await demos.getAddressInfo(publicKeyHex);
-      const rawBalance = addrInfo?.balance || 0;
-      const rawBalanceString = rawBalance.toString(); // Convert BigInt to string
-      
-      logger.info("Initial wallet balance:", {
-        balance: rawBalanceString,
-        addressInfo: addrInfo
-      });
-      
-      // Populate initial cache
-      faucetServer.setCachedBalance(rawBalanceString, addrInfo);
-    } catch (balanceError) {
-      logger.warn("Could not fetch initial balance (wallet might be new):", balanceError.message);
-    }
-    
-    return { faucetServer, demos };
-  } catch (error) {
-    logger.error("Failed to initialize faucet:", {
-      error: error.message,
-      stack: error.stack
-    });
-    process.exit(1);
-  }
-}
+// Initialize the faucet server
+const faucetServer = new FaucetServer();
+// Initialize the demos instance
+let demos = new demosdk.websdk.Demos();
+// Connecting to the network
+await demos.connect(faucetServer.getRpcUrl());
+// Connecting to the wallet
+let mnemonic = faucetServer.getMnemonic();
+console.log("Trying to connect with mnemonic");
+let walletAddress = await demos.connectWallet(mnemonic);
+console.log("Connected to the network and wallet: " + walletAddress);
+faucetServer.setPublicKey(walletAddress);
 
-// Initialize and start
-async function startServer() {
-  logger.info("Starting faucet server...");
-  
-  // Initialize the system
-  const { faucetServer, demos } = await initializeFaucet();
-  
-  // Setup routes with initialized instances
-  setupRoutes(faucetServer, demos);
-  
-  // Start the periodic balance updater
-  startBalanceUpdater(faucetServer, demos);
-  
-  // Start the server
-  await server();
-  
-  logger.info("Faucet server started successfully");
-}
-
-// Start the application
-startServer().catch((error) => {
-  logger.error("Failed to start server:", error);
-  process.exit(1);
-});
+// Starting the server
+server();

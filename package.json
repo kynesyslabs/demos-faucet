@@ -9,8 +9,12 @@
     "serve": "bun run src/server.ts"
   },
   "dependencies": {
-    "@kynesyslabs/demosdk": "^2.2.70",
-    "hono": "^4.0.0"
+    "hono": "^4.0.0",
+    "@kynesyslabs/demosdk": "^2.2.71",
+    "axios": "^1.6.0",
+    "crypto": "^1.0.1",
+    "dotenv": "^16.4.7",
+    "dotenv-webpack": "^8.1.0"
   },
   "devDependencies": {
     "bun-types": "latest",

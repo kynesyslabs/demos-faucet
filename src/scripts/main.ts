@@ -261,10 +261,11 @@ class App {
         const confirmationBlockElement =
           document.getElementById("confirmation-block");
 
-        if (transactionInfo && txHashElement && confirmationBlockElement) {
+        if (transactionInfo && txHashElement) {
           txHashElement.innerHTML = `<a href="https://explorer.demos.sh/transactions/${responseData.body.txHash}" target="_blank" rel="noopener noreferrer">${responseData.body.txHash}</a>`;
-          confirmationBlockElement.textContent =
-            responseData.body.confirmationBlock.toString();
+          if (confirmationBlockElement) {
+            confirmationBlockElement.textContent = "Pending confirmation";
+          }
           transactionInfo.classList.remove("hidden");
         }
 
