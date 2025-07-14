@@ -1,4 +1,4 @@
-import * as demosdk from "@kynesyslabs/demosdk";
+import { websdk } from "@kynesyslabs/demosdk";
 import dotenv from "dotenv";
 import { Safeguards } from "./safeguards";
 import express from "express";
@@ -165,7 +165,7 @@ export class FaucetServer {
  * @returns A promise that resolves to an object containing the success status and a message.
  */
 async function transferTokens(
-  demos: demosdk.websdk.Demos,
+  demos: websdk.Demos,
   faucetServer: FaucetServer,
   amount: number,
   to: string
@@ -178,20 +178,37 @@ async function transferTokens(
   try {
     console.log("Transferring tokens to: " + to);
     
-    // Get current nonce
-    const fromAddress = faucetServer.getPublicKey();
-    const nonce = await demos.getNonce(fromAddress);
-    console.log(`Using nonce: ${nonce}`);
+    // Create transaction
+    const transaction = await demos.transfer(to, amount);
+    console.log("Transaction created, confirming...");
     
-    // Send transaction using simplified method (like working tools)
-    const txHash = await demos.send(to, amount, nonce);
-    console.log(`Transaction sent with hash: ${txHash}`);
+    // Confirm transaction
+    const confirmation = await demos.confirm(transaction);
+    console.log("Confirmation: " + JSON.stringify(confirmation, null, 2));
+    
+    if (!confirmation.response.data.valid) {
+      console.log("Transaction failed during confirmation");
+      return {
+        success: false,
+        message: "Transaction failed: " + JSON.stringify(confirmation, null, 2),
+        txHash: "",
+        confirmationBlock: -1,
+      };
+    }
+    
+    const txHash = confirmation.response.data.transaction.hash;
+    const confirmationBlock = confirmation.response.data.reference_block;
+    
+    // Broadcast transaction
+    console.log("Broadcasting transaction...");
+    const result = await demos.broadcast(confirmation);
+    console.log("Broadcast result: " + JSON.stringify(result, null, 2));
     
     return {
       success: true,
       message: `Transaction successful: ${txHash}`,
       txHash: txHash,
-      confirmationBlock: -1, // Not available with send method
+      confirmationBlock: confirmationBlock,
     };
   } catch (error) {
     console.error("Transaction failed:", error);
@@ -204,11 +221,36 @@ async function transferTokens(
   }
 }
 
+/**
+ * Updates the balance cache by fetching from the network
+ */
+async function updateBalanceCache(faucetServer: FaucetServer, demos: websdk.Demos) {
+  try {
+    const publicKey = faucetServer.getPublicKey();
+    if (!publicKey) {
+      logger.warn("No public key available for balance update");
+      return;
+    }
+    
+    const addrInfo = await demos.getAddressInfo(publicKey);
+    const rawBalance = addrInfo?.balance;
+    
+    if (rawBalance !== undefined) {
+      faucetServer.setCachedBalance(rawBalance.toString(), addrInfo);
+      logger.info("Balance cache updated successfully", { balance: rawBalance });
+    } else {
+      logger.warn("Failed to get balance from network");
+    }
+  } catch (error) {
+    logger.error("Error updating balance cache:", error);
+  }
+}
+
 // SECTION Server logic
 /**
  * Starts the periodic balance updater
  */
-function startBalanceUpdater(faucetServer: FaucetServer, demos: demosdk.websdk.Demos) {
+function startBalanceUpdater(faucetServer: FaucetServer, demos: websdk.Demos) {
   logger.info("Starting periodic balance updater (5 second interval)");
   
   // Initial update
@@ -223,7 +265,7 @@ function startBalanceUpdater(faucetServer: FaucetServer, demos: demosdk.websdk.D
 /**
  * Sets up API routes after initialization
  */
-function setupRoutes(faucetServer: FaucetServer, demos: demosdk.websdk.Demos) {
+function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
   // API Routes
   app.get("/api/test", (req, res) => {
     logger.info("Test endpoint hit");
@@ -260,37 +302,39 @@ function setupRoutes(faucetServer: FaucetServer, demos: demosdk.websdk.Demos) {
         });
       }
 
-      if (req.url.endsWith("/api/faucet")) {
-        // TODO: Your faucet logic using @kynesyslabs/demosdk
+      // Return cached balance
+      return res.json({
+        status: 200,
+        body: {
+          balance: cachedBalance.balance,
+          publicKey: publicKey,
+          cached: true,
+          lastUpdated: cachedBalance.lastUpdated
+        },
+      });
+    } catch (error) {
+      logger.error("Error getting balance:", error);
+      return res.status(500).json({ 
+        error: "Failed to get balance",
+        status: 500,
+        body: { balance: 0 }
+      });
+    }
+  });
+
+  // Request tokens endpoint (moved to setupRoutes)
+  app.post("/api/request", faucetRateLimit, async (req, res) => {
+    try {
+      const { address, amount } = req.body;
+      const ip = getClientIP(req);
+
+      // Validate input
+      if (!address || !amount) {
+        return res.status(400).json({
+          status: 400,
+          body: "Address and amount are required",
+        });
       }
-
-      if (req.url.endsWith("/api/balance")) {
-        console.log("Getting balance for: " + faucetServer.getPublicKey());
-        let addrInfo = await demos.getAddressInfo(faucetServer.getPublicKey());
-        console.log("Address info: ");
-        console.log(addrInfo);
-
-        let balance = addrInfo?.balance;
-        return Response.json(
-          {
-            status: 200,
-            body: {
-              balance: balance,
-            },
-          },
-          {
-            headers: {
-              "Access-Control-Allow-Origin": "https://faucet.demos.sh",
-              "Access-Control-Allow-Methods": "GET, POST",
-              "Access-Control-Allow-Headers": "Content-Type",
-            },
-          }
-        );
-      }
-
-      if (req.url.endsWith("/api/request")) {
-        // Getting the request body
-        let body = await req.json();
 
       // Check safeguards
       const safeguards = faucetServer.getSafeguards();
@@ -307,33 +351,33 @@ function setupRoutes(faucetServer: FaucetServer, demos: demosdk.websdk.Demos) {
       // Transfer the tokens
       let result = await transferTokens(demos, faucetServer, amount, address);
 
-        let responseBody = {};
-        if (result.success) {
-          responseBody = {
-            status: 200,
-            body: {
-              txHash: result.txHash,
-              message: result.message,
-            },
-          };
-        } else {
-          responseBody = {
-            status: 400,
-            body: result.message,
-          };
-        }
-        return Response.json(responseBody, {
-          headers: {
-            "Access-Control-Allow-Origin": "https://faucet.demos.sh",
-            "Access-Control-Allow-Methods": "GET, POST",
-            "Access-Control-Allow-Headers": "Content-Type",
+      if (result.success) {
+        return res.json({
+          status: 200,
+          body: {
+            txHash: result.txHash,
+            confirmationBlock: result.confirmationBlock,
+            message: result.message,
           },
         });
+      } else {
+        return res.status(400).json({
+          status: 400,
+          body: result.message,
+        });
       }
+    } catch (error) {
+      logger.error("Error processing faucet request:", error);
+      return res.status(500).json({
+        status: 500,
+        body: "Internal server error",
+      });
+    }
+  });
 
-      if (req.url.endsWith("/api/stats/address")) {
-        const url = new URL(req.url);
-        const address = url.searchParams.get("address");
+  app.get("/api/stats/address", async (req, res) => {
+    try {
+      const address = req.query.address as string;
 
       if (!address) {
         return res.status(400).json({
@@ -371,7 +415,6 @@ function setupRoutes(faucetServer: FaucetServer, demos: demosdk.websdk.Demos) {
       status: "healthy",
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
-      rpcConnected: !!demos?.rpc,
       walletConnected: !!faucetServer.getPublicKey()
     });
   });
@@ -400,7 +443,7 @@ async function server() {
 // Initialize the faucet server
 const faucetServer = new FaucetServer();
 // Initialize the demos instance
-let demos = new demosdk.websdk.Demos();
+let demos = new websdk.Demos();
 // Connecting to the network
 await demos.connect(faucetServer.getRpcUrl());
 // Connecting to the wallet
@@ -409,6 +452,10 @@ console.log("Trying to connect with mnemonic");
 let walletAddress = await demos.connectWallet(mnemonic);
 console.log("Connected to the network and wallet: " + walletAddress);
 faucetServer.setPublicKey(walletAddress);
+
+// Setup routes and start balance updater
+setupRoutes(faucetServer, demos);
+startBalanceUpdater(faucetServer, demos);
 
 // Starting the server
 server();

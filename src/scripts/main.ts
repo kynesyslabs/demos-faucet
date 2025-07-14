@@ -263,7 +263,9 @@ class App {
 
         if (transactionInfo && txHashElement) {
           txHashElement.innerHTML = `<a href="https://explorer.demos.sh/transactions/${responseData.body.txHash}" target="_blank" rel="noopener noreferrer">${responseData.body.txHash}</a>`;
-          if (confirmationBlockElement) {
+          if (confirmationBlockElement && responseData.body.confirmationBlock && responseData.body.confirmationBlock !== -1) {
+            confirmationBlockElement.textContent = responseData.body.confirmationBlock.toString();
+          } else if (confirmationBlockElement) {
             confirmationBlockElement.textContent = "Pending confirmation";
           }
           transactionInfo.classList.remove("hidden");
