@@ -12,6 +12,8 @@
   "dependencies": {
     "@kynesyslabs/demosdk": "^2.2.70",
     "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
     "express-rate-limit": "^7.0.0",
     "express-slow-down": "^2.0.0",
     "express-validator": "^7.0.0",

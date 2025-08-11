@@ -23,6 +23,11 @@ const app = express();
 const port = process.env.PORT || 3000;
 const ddosProtection = new DDoSProtection();
 
+// Trust proxy headers when behind reverse proxy
+// Using specific proxy count instead of 'true' to satisfy express-rate-limit security
+// Set to 1 if behind single proxy (nginx), 2 if behind double proxy (cloudflare + nginx), etc.
+app.set('trust proxy', 1);
+
 // Security middleware
 app.use(helmet({
   contentSecurityPolicy: {
@@ -251,21 +256,44 @@ async function updateBalanceCache(faucetServer: FaucetServer, demos: websdk.Demo
  * Starts the periodic balance updater
  */
 function startBalanceUpdater(faucetServer: FaucetServer, demos: websdk.Demos) {
-  logger.info("Starting periodic balance updater (5 second interval)");
+  logger.info("Starting periodic balance updater (30 second interval)");
   
   // Initial update
   updateBalanceCache(faucetServer, demos);
   
-  // Set up periodic updates every 5 seconds
+  // Set up periodic updates every 30 seconds (reduced from 5 seconds)
   setInterval(() => {
     updateBalanceCache(faucetServer, demos);
-  }, 5000);
+  }, 30000);
+}
+
+/**
+ * Forces a balance update from the blockchain
+ */
+async function forceBalanceUpdate(faucetServer: FaucetServer, demos: websdk.Demos): Promise<void> {
+  logger.info("Forcing balance update from blockchain");
+  await updateBalanceCache(faucetServer, demos);
 }
 
 /**
  * Sets up API routes after initialization
  */
 function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
+  // Root route
+  app.get("/", (req, res) => {
+    res.json({ 
+      service: "Demos Faucet API",
+      version: "1.0.0",
+      endpoints: [
+        "/api/health",
+        "/api/balance",
+        "/api/request",
+        "/api/stats/address",
+        "/api/stats/global"
+      ]
+    });
+  });
+
   // API Routes
   app.get("/api/test", (req, res) => {
     logger.info("Test endpoint hit");
@@ -336,6 +364,9 @@ function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
         });
       }
 
+      // Force balance update before processing request
+      await forceBalanceUpdate(faucetServer, demos);
+
       // Check safeguards
       const safeguards = faucetServer.getSafeguards();
       const checkResult = await safeguards.checkSafeguards(address, amount, ip);
@@ -352,6 +383,9 @@ function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
       let result = await transferTokens(demos, faucetServer, amount, address);
 
       if (result.success) {
+        // Force balance update after successful transfer
+        await forceBalanceUpdate(faucetServer, demos);
+        
         return res.json({
           status: 200,
           body: {

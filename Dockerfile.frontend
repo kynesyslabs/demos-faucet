@@ -7,7 +7,9 @@ WORKDIR /app
 COPY package.json bun.lockb* ./
 
 # Install dependencies
-RUN bun install --frozen-lockfile
+# Note: Using --frozen-lockfile=false due to lockfile sync issues
+# In production, you should commit the updated lockfile
+RUN bun install
 
 # Copy source code
 COPY src/ ./src/
@@ -25,20 +27,18 @@ WORKDIR /app
 COPY package.json ./
 
 # Install production dependencies only
-RUN bun install --production --frozen-lockfile
-
-# Copy built assets and server
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/src/server.ts ./src/
-COPY --from=builder /app/src/index.html ./src/
-COPY --from=builder /app/src/styles ./src/styles
+RUN bun install --production
 
 # Create non-root user
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 faucet
 
-# Set ownership
-RUN chown -R faucet:nodejs /app
+# Copy built assets and server with proper ownership
+COPY --from=builder --chown=faucet:nodejs /app/dist ./dist
+COPY --from=builder --chown=faucet:nodejs /app/src/server.ts ./src/
+COPY --from=builder --chown=faucet:nodejs /app/src/index.html ./src/
+COPY --from=builder --chown=faucet:nodejs /app/src/styles ./src/styles
+
 USER faucet
 
 # Expose port
