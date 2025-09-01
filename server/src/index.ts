@@ -400,7 +400,6 @@ function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
           }
         });
       }
-      });
     } catch (error) {
       logger.error("Error getting balance:", error);
       return res.status(500).json({ 
