@@ -229,6 +229,43 @@ async function transferTokens(
 /**
  * Updates the balance cache by fetching from the network
  */
+/**
+ * Retry mechanism for network operations with exponential backoff
+ */
+async function retryWithBackoff<T>(
+  operation: () => Promise<T>,
+  maxAttempts: number = 3,
+  baseDelay: number = 5000,
+  operationName: string = "operation"
+): Promise<T> {
+  let lastError: Error;
+  
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      logger.info(`${operationName} - Attempt ${attempt}/${maxAttempts}`);
+      const result = await operation();
+      
+      if (attempt > 1) {
+        logger.info(`${operationName} succeeded on attempt ${attempt}`);
+      }
+      
+      return result;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      logger.warn(`${operationName} failed on attempt ${attempt}/${maxAttempts}:`, lastError.message);
+      
+      if (attempt < maxAttempts) {
+        const delay = baseDelay * Math.pow(1.5, attempt - 1); // Exponential backoff
+        logger.info(`Retrying ${operationName} in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  
+  logger.error(`${operationName} failed after ${maxAttempts} attempts`);
+  throw lastError!;
+}
+
 async function updateBalanceCache(faucetServer: FaucetServer, demos: websdk.Demos) {
   try {
     const publicKey = faucetServer.getPublicKey();
@@ -237,7 +274,12 @@ async function updateBalanceCache(faucetServer: FaucetServer, demos: websdk.Demo
       return;
     }
     
-    const addrInfo = await demos.getAddressInfo(publicKey);
+    const addrInfo = await retryWithBackoff(
+      () => demos.getAddressInfo(publicKey),
+      3,
+      5000,
+      "getAddressInfo for balance cache"
+    );
     const rawBalance = addrInfo?.balance;
     
     if (rawBalance !== undefined) {
@@ -303,7 +345,7 @@ function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
   app.get("/api/balance", async (req, res) => {
     try {
       const publicKey = faucetServer.getPublicKey();
-      logger.info("Getting cached balance for public key: " + publicKey);
+      logger.info("Getting live balance for public key: " + publicKey);
       
       if (!publicKey) {
         logger.error("No public key available");
@@ -314,31 +356,50 @@ function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
         });
       }
 
-      // Get cached balance
-      const cachedBalance = faucetServer.getCachedBalance();
-      
-      if (!cachedBalance) {
-        logger.warn("No cached balance available yet");
-        return res.json({
-          status: 200,
-          body: {
+      // Get live balance directly from network with retry mechanism
+      try {
+        const addrInfo = await retryWithBackoff(
+          () => demos.getAddressInfo(publicKey),
+          3,
+          5000,
+          "getAddressInfo for balance endpoint"
+        );
+        const rawBalance = addrInfo?.balance;
+        
+        if (rawBalance !== undefined) {
+          logger.info("Live balance retrieved successfully", { balance: rawBalance });
+          return res.json({
+            status: 200,
+            body: {
+              balance: rawBalance.toString(),
+              publicKey: publicKey,
+              cached: false,
+              message: "Live balance (cache disabled)"
+            },
+          });
+        } else {
+          logger.warn("Failed to get balance from network");
+          return res.status(500).json({
+            status: 500,
+            body: { 
+              balance: 0,
+              message: "Failed to retrieve balance from network",
+              publicKey: publicKey
+            }
+          });
+        }
+      } catch (networkError) {
+        logger.error("Network error getting balance:", networkError);
+        return res.status(500).json({
+          status: 500,
+          body: { 
             balance: 0,
-            message: "Balance not yet available - updating...",
-            publicKey: publicKey,
-            cached: false
-          },
+            message: "Network error retrieving balance",
+            error: networkError instanceof Error ? networkError.message : 'Unknown error',
+            publicKey: publicKey
+          }
         });
       }
-
-      // Return cached balance
-      return res.json({
-        status: 200,
-        body: {
-          balance: cachedBalance.balance,
-          publicKey: publicKey,
-          cached: true,
-          lastUpdated: cachedBalance.lastUpdated
-        },
       });
     } catch (error) {
       logger.error("Error getting balance:", error);

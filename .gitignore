@@ -134,3 +134,4 @@ faucet.db
 *.log
 
 .gitbook-cache.json
+.serena
