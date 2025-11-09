@@ -144,9 +144,13 @@ class App {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
+        // Server determines amount based on identity, don't send it from client
         let result = await fetch(`${this.remoteBackendUrl}/api/request`, {
           method: "POST",
-          body: JSON.stringify({ address, amount }),
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ address }),
           signal: controller.signal,
         });
 
@@ -155,20 +159,21 @@ class App {
         const responseData = await result.json();
 
         if (!result.ok) {
-          // Handle specific safeguard errors
-          if (responseData.body.includes("exceeds maximum allowed amount")) {
+          // Handle specific error codes
+          if (result.status === 429) {
+            // Rate limited
             this.showError(
-              "Requested amount exceeds the maximum allowed limit"
+              responseData.body || "You have reached the request limit. Please try again later."
             );
-          } else if (responseData.body.includes("maximum number of requests")) {
+          } else if (result.status === 400) {
+            // Bad request (invalid address, etc.)
             this.showError(
-              "You have reached the maximum number of requests for this time period"
+              responseData.body || "Invalid request. Please check your address."
             );
-          } else if (
-            responseData.body.includes("would exceed the maximum amount limit")
-          ) {
+          } else if (result.status === 500) {
+            // Server error
             this.showError(
-              "This request would exceed your total amount limit for this time period"
+              "Transaction failed. Please try again later."
             );
           } else {
             this.showError(
@@ -194,8 +199,9 @@ class App {
           transactionInfo.classList.remove("hidden");
         }
 
-        // Show success message
-        this.showSuccess("Tokens requested successfully!");
+        // Show success message with the amount received
+        const amountReceived = responseData.body.amount || this.FIXED_AMOUNT;
+        this.showSuccess(`Successfully received ${amountReceived} DEMOS!`);
 
         // Update balance after successful request
         await this.updateBalance();

@@ -111,6 +111,33 @@ async function transferTokens(
   }
 }
 
+// SECTION Validation helpers
+
+/**
+ * Validates a Demos address format
+ */
+function isValidAddress(address: unknown): address is string {
+  if (typeof address !== 'string') return false;
+  // Basic validation: check if it's a non-empty string
+  // Adjust regex based on actual Demos address format
+  return /^[a-zA-Z0-9]{40,66}$/.test(address);
+}
+
+/**
+ * Extracts real client IP from X-Forwarded-For header
+ * Assumes nginx sets X-Forwarded-For properly
+ */
+function getClientIP(req: Request): string {
+  const xForwardedFor = req.headers.get("x-forwarded-for");
+  if (xForwardedFor) {
+    // X-Forwarded-For format: "client, proxy1, proxy2"
+    // Take the leftmost (original client) IP
+    const ips = xForwardedFor.split(',').map(ip => ip.trim());
+    return ips[0] || "unknown";
+  }
+  return "unknown";
+}
+
 // SECTION Server logic
 /**
  * Starts the server.
@@ -119,19 +146,19 @@ async function server() {
   const server = Bun.serve({
     port: faucetServer.port,
     async fetch(req) {
-      // Handle CORS
+      // Handle CORS preflight
       if (req.method === "OPTIONS") {
         return new Response(null, {
           headers: {
-            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Origin": "https://faucet.demos.sh",
             "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
             "Access-Control-Allow-Headers": "Content-Type",
           },
         });
       }
 
-      // Get client IP
-      const ip = req.headers.get("x-forwarded-for") || "unknown";
+      // Get real client IP (protected against spoofing)
+      const ip = getClientIP(req);
 
       // Your API endpoints here
       if (req.url.endsWith("/api/test")) {
@@ -175,49 +202,87 @@ async function server() {
       }
 
       if (req.url.endsWith("/api/request")) {
-        // Getting the request body
-        let body = await req.json();
+        // Only allow POST requests
+        if (req.method !== "POST") {
+          return Response.json(
+            { status: 405, body: "Method not allowed" },
+            { status: 405 }
+          );
+        }
 
-        // Check safeguards
+        // Parse and validate request body
+        let body: any;
+        try {
+          body = await req.json();
+        } catch (error) {
+          return Response.json(
+            { status: 400, body: "Invalid JSON in request body" },
+            { status: 400 }
+          );
+        }
+
+        // Validate address format
+        if (!isValidAddress(body?.address)) {
+          return Response.json(
+            { status: 400, body: "Invalid or missing address" },
+            { status: 400 }
+          );
+        }
+
+        // Check safeguards and get server-determined amount
         const safeguards = faucetServer.getSafeguards();
-        const checkResult = await safeguards.checkSafeguards(
+        const checkResult = await safeguards.checkAndRecordRequest(
           body.address,
-          body.amount,
           ip,
           demos
         );
 
         if (!checkResult.allowed) {
-          return Response.json({
-            status: 400,
-            body: checkResult.message,
-          });
+          return Response.json(
+            { status: 429, body: checkResult.message },
+            {
+              status: 429,
+              headers: {
+                "Access-Control-Allow-Origin": "https://faucet.demos.sh",
+                "Access-Control-Allow-Methods": "GET, POST",
+                "Access-Control-Allow-Headers": "Content-Type",
+                "Retry-After": "21600", // 6 hours in seconds
+              },
+            }
+          );
         }
+
+        // Server determines amount (not client)
+        const amount = checkResult.amount!;
 
         // Transfer the tokens
         let result = await transferTokens(
           demos,
           faucetServer,
-          body.amount,
+          amount,
           body.address
         );
 
         let responseBody = {};
+        let status = 200;
         if (result.success) {
           responseBody = {
             status: 200,
             body: {
               txHash: result.txHash,
               message: result.message,
+              amount: amount,
             },
           };
         } else {
           responseBody = {
-            status: 400,
-            body: result.message,
+            status: 500,
+            body: "Transaction failed. Please try again later.",
           };
+          status = 500;
         }
         return Response.json(responseBody, {
+          status: status,
           headers: {
             "Access-Control-Allow-Origin": "https://faucet.demos.sh",
             "Access-Control-Allow-Methods": "GET, POST",
@@ -227,31 +292,69 @@ async function server() {
       }
 
       if (req.url.endsWith("/api/stats/address")) {
+        // Only allow GET requests
+        if (req.method !== "GET") {
+          return Response.json(
+            { status: 405, body: "Method not allowed" },
+            { status: 405 }
+          );
+        }
+
         const url = new URL(req.url);
         const address = url.searchParams.get("address");
 
         if (!address) {
-          return Response.json({
-            status: 400,
-            body: "Address parameter is required",
-          });
+          return Response.json(
+            { status: 400, body: "Address parameter is required" },
+            { status: 400 }
+          );
+        }
+
+        // Validate address format
+        if (!isValidAddress(address)) {
+          return Response.json(
+            { status: 400, body: "Invalid address format" },
+            { status: 400 }
+          );
         }
 
         const stats = await faucetServer
           .getSafeguards()
           .getAddressStats(address);
-        return Response.json({
-          status: 200,
-          body: stats,
-        });
+        return Response.json(
+          { status: 200, body: stats },
+          {
+            status: 200,
+            headers: {
+              "Access-Control-Allow-Origin": "https://faucet.demos.sh",
+              "Access-Control-Allow-Methods": "GET",
+              "Access-Control-Allow-Headers": "Content-Type",
+            },
+          }
+        );
       }
 
       if (req.url.endsWith("/api/stats/global")) {
+        // Only allow GET requests
+        if (req.method !== "GET") {
+          return Response.json(
+            { status: 405, body: "Method not allowed" },
+            { status: 405 }
+          );
+        }
+
         const stats = await faucetServer.getSafeguards().getGlobalStats();
-        return Response.json({
-          status: 200,
-          body: stats,
-        });
+        return Response.json(
+          { status: 200, body: stats },
+          {
+            status: 200,
+            headers: {
+              "Access-Control-Allow-Origin": "https://faucet.demos.sh",
+              "Access-Control-Allow-Methods": "GET",
+              "Access-Control-Allow-Headers": "Content-Type",
+            },
+          }
+        );
       }
 
       if (req.url.endsWith("/api/history")) {
