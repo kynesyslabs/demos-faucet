@@ -55,8 +55,14 @@ export class Safeguards {
     if (demos) {
       try {
         const addressInfo = await demos.getAddressInfo(address);
-        // Check if address has an identity
-        if (addressInfo && addressInfo.identity && addressInfo.identity.length > 0) {
+        // Check if address has an identity (could be string, array, or object)
+        const hasIdentity = addressInfo?.identity &&
+          (typeof addressInfo.identity === 'string' ? addressInfo.identity.length > 0 :
+           Array.isArray(addressInfo.identity) ? addressInfo.identity.length > 0 :
+           typeof addressInfo.identity === 'object' ? Object.keys(addressInfo.identity).length > 0 :
+           Boolean(addressInfo.identity));
+
+        if (hasIdentity) {
           maxAmount = 100; // Increase to 100 DEM for addresses with identity
           console.log(`Address ${address} has identity, increased limit to ${maxAmount} DEM`);
         } else {
