@@ -1,6 +1,8 @@
 class App {
   public remoteBackendUrl: string;
-  private readonly FIXED_AMOUNT: number = 10; // Fixed amount of 10 DEMOS
+  // Note: Amount is now determined by the server (50 DEM base, 100 DEM with identity)
+  // This constant is no longer sent to the backend
+  private readonly FIXED_AMOUNT: number = 10; // Legacy - not used for requests
 
   constructor() {
     // Use window global injected by server, fallback to docker internal URL
@@ -52,7 +54,7 @@ class App {
           return;
         }
 
-        this.requestTokens(address.value, this.FIXED_AMOUNT);
+        this.requestTokens(address.value);
       });
     }
   }
@@ -184,7 +186,7 @@ class App {
     // TODO: get balance from backend
   }
 
-  private async requestTokens(address: string, amount: number): Promise<void> {
+  private async requestTokens(address: string): Promise<void> {
     const submitButton = document.querySelector(
       ".request-button"
     ) as HTMLButtonElement;
@@ -210,7 +212,8 @@ class App {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
-        const requestBody = { address, amount };
+        // SECURITY: Amount is determined by server based on identity check
+        const requestBody = { address };
         console.log("Sending request to backend:", {
           url: `${this.remoteBackendUrl}/api/request`,
           body: requestBody
@@ -271,8 +274,13 @@ class App {
           transactionInfo.classList.remove("hidden");
         }
 
-        // Show success message
-        this.showSuccess("Tokens requested successfully!");
+        // Show success message with the actual amount received from server
+        const receivedAmount = responseData.body?.amount;
+        this.showSuccess(
+          receivedAmount !== null && receivedAmount !== undefined
+            ? `Successfully received ${receivedAmount} DEMOS!`
+            : "Successfully received tokens!"
+        );
 
         // Update balance after successful request
         await this.updateFaucetStatus();
