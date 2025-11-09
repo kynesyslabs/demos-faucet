@@ -40,7 +40,8 @@ export class Safeguards {
   public async checkSafeguards(
     address: string,
     amount: number,
-    ip: string
+    ip: string,
+    demos?: any
   ): Promise<{
     allowed: boolean;
     message: string;
@@ -48,7 +49,24 @@ export class Safeguards {
     const now = Math.floor(Date.now() / 1000);
     const timeInterval = this.faucetServer.timeInterval;
     const numberPerInterval = this.faucetServer.numberPerInterval;
-    const maxAmount = this.faucetServer.maxAmount;
+    let maxAmount = this.faucetServer.maxAmount;
+
+    // Check for Demos identity and increase limit if present
+    if (demos) {
+      try {
+        const addressInfo = await demos.getAddressInfo(address);
+        // Check if address has an identity
+        if (addressInfo && addressInfo.identity && addressInfo.identity.length > 0) {
+          maxAmount = 100; // Increase to 100 DEM for addresses with identity
+          console.log(`Address ${address} has identity, increased limit to ${maxAmount} DEM`);
+        } else {
+          console.log(`Address ${address} has no identity, using base limit of ${maxAmount} DEM`);
+        }
+      } catch (error) {
+        console.error(`Error checking identity for ${address}:`, error);
+        // If error checking identity, use base maxAmount
+      }
+    }
 
     // Check if amount exceeds max allowed
     if (amount > maxAmount) {

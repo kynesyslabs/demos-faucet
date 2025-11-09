@@ -1,7 +1,7 @@
 import "../styles/main.css";
 class App {
   public remoteBackendUrl: string;
-  private readonly FIXED_AMOUNT: number = 10; // Fixed amount of 10 DEMOS
+  private readonly FIXED_AMOUNT: number = 50; // Fixed amount of 50 DEMOS (100 for addresses with identity)
 
   constructor() {
     this.remoteBackendUrl = process.env.REMOTE_BACKEND_URL || "";

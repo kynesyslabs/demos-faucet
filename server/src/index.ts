@@ -183,7 +183,8 @@ async function server() {
         const checkResult = await safeguards.checkSafeguards(
           body.address,
           body.amount,
-          ip
+          ip,
+          demos
         );
 
         if (!checkResult.allowed) {
