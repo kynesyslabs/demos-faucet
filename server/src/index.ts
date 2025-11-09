@@ -428,10 +428,10 @@ function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
       // Force balance update before processing request
       await forceBalanceUpdate(faucetServer, demos);
 
-      // Check safeguards and get server-determined amount
-      // SECURITY: Uses atomic transactions to prevent race conditions
+      // Phase 1: Check if request is allowed (don't record yet)
+      // SECURITY: Two-phase commit ensures quota only consumed on successful transfer
       const safeguards = faucetServer.getSafeguards();
-      const checkResult = await safeguards.checkAndRecordRequest(address, ip, demos);
+      const checkResult = await safeguards.checkIfAllowed(address, ip, demos);
 
       if (!checkResult.allowed) {
         logger.warn("Safeguard check failed", { address, ip, reason: checkResult.message });
@@ -453,10 +453,13 @@ function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
         });
       }
 
-      // Transfer the tokens
+      // Phase 2: Transfer tokens FIRST before recording request
       let result = await transferTokens(demos, faucetServer, amount, address);
 
       if (result.success) {
+        // Phase 3: Record request ONLY after successful transfer
+        await safeguards.recordSuccessfulRequest(address, ip, amount);
+
         // Force balance update after successful transfer
         await forceBalanceUpdate(faucetServer, demos);
 
@@ -472,6 +475,8 @@ function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
           },
         });
       } else {
+        // Transfer failed - quota NOT consumed, user can retry
+        logger.warn("Token transfer failed", { address, amount, ip });
         return res.status(500).json({
           status: 500,
           body: "Transaction failed. Please try again later.",
