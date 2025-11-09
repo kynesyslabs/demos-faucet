@@ -115,12 +115,13 @@ async function transferTokens(
 
 /**
  * Validates a Demos address format
+ * Format: 0x followed by 64 hexadecimal characters (32 bytes)
+ * Example: 0xd58e8528cd9585dab850733ee92255ae84fe28d8d44543a8e39b95cf098fd329
  */
 function isValidAddress(address: unknown): address is string {
   if (typeof address !== 'string') return false;
-  // Basic validation: check if it's a non-empty string
-  // Adjust regex based on actual Demos address format
-  return /^[a-zA-Z0-9]{40,66}$/.test(address);
+  // Demos addresses are 0x + 64 hex characters (case insensitive)
+  return /^0x[0-9a-fA-F]{64}$/.test(address);
 }
 
 /**
