@@ -12,20 +12,23 @@ app.use('/styles/*', serveStatic({ root: './src' }));
 // Serve the main HTML file with injected environment variables
 app.get('/', (c) => {
   let html = readFileSync(join(process.cwd(), 'src/index.html'), 'utf-8');
-  
+
   // Inject backend URL as a global variable
   // Use the environment variable from docker-compose, fallback to localhost
   const backendUrl = process.env.REMOTE_BACKEND_URL || 'http://localhost:3010';
   console.log('Injecting backend URL into frontend:', backendUrl);
-  
-  const envScript = `<script>window.__BACKEND_URL__ = '${backendUrl}';</script>`;
-  
+
+  // SECURITY: Properly escape the URL to prevent XSS
+  // Use JSON.stringify to safely encode the string for JavaScript context
+  const safeBackendUrl = JSON.stringify(backendUrl);
+  const envScript = `<script>window.__BACKEND_URL__ = ${safeBackendUrl};</script>`;
+
   // Insert before the main script tag
   html = html.replace(
     '<script type="module" src="/dist/main.js"></script>',
     `${envScript}\n    <script type="module" src="/dist/main.js"></script>`
   );
-  
+
   return c.html(html);
 });
 

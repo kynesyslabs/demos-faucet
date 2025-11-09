@@ -96,7 +96,11 @@ export class Safeguards {
         request_count: number;
       }[];
 
-      const stats = recentRequests[0] || { total_amount: 0, request_count: 0 };
+      // Handle NULL from SUM() when no rows match
+      const stats = {
+        total_amount: recentRequests[0]?.total_amount || 0,
+        request_count: recentRequests[0]?.request_count || 0
+      };
 
       // Check number of requests per interval
       if (stats.request_count >= numberPerInterval) {
@@ -178,10 +182,11 @@ export class Safeguards {
       last_request: number | null;
     }[];
 
-    const currentStats = stats[0] || {
-      total_requests: 0,
-      total_amount: 0,
-      last_request: null,
+    // Handle NULL from aggregate functions when no rows match
+    const currentStats = {
+      total_requests: stats[0]?.total_requests || 0,
+      total_amount: stats[0]?.total_amount || 0,
+      last_request: stats[0]?.last_request || null,
     };
 
     // Calculate time until reset
