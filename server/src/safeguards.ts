@@ -37,72 +37,115 @@ export class Safeguards {
     `);
   }
 
-  public async checkSafeguards(
+  public async checkAndRecordRequest(
     address: string,
-    amount: number,
-    ip: string
+    ip: string,
+    demos?: any
   ): Promise<{
     allowed: boolean;
     message: string;
+    amount?: number;
   }> {
     const now = Math.floor(Date.now() / 1000);
     const timeInterval = this.faucetServer.timeInterval;
     const numberPerInterval = this.faucetServer.numberPerInterval;
-    const maxAmount = this.faucetServer.maxAmount;
+    let maxAmount = this.faucetServer.maxAmount;
 
-    // Check if amount exceeds max allowed
-    if (amount > maxAmount) {
-      return {
-        allowed: false,
-        message: `Requested amount ${amount} exceeds maximum allowed amount of ${maxAmount} DEMOS`,
-      };
+    // Check for Demos identity and increase limit if present
+    if (demos) {
+      try {
+        const addressInfo = await demos.getAddressInfo(address);
+        // Check if address has an identity (could be string, array, or object)
+        const hasIdentity = addressInfo?.identity &&
+          (typeof addressInfo.identity === 'string' ? addressInfo.identity.length > 0 :
+           Array.isArray(addressInfo.identity) ? addressInfo.identity.length > 0 :
+           typeof addressInfo.identity === 'object' ? Object.keys(addressInfo.identity).length > 0 :
+           Boolean(addressInfo.identity));
+
+        if (hasIdentity) {
+          maxAmount = 100; // Increase to 100 DEM for addresses with identity
+          console.log(`Address ${address} has identity, increased limit to ${maxAmount} DEM`);
+        } else {
+          console.log(`Address ${address} has no identity, using base limit of ${maxAmount} DEM`);
+        }
+      } catch (error) {
+        console.error(`Error checking identity for ${address}:`, error);
+        // If error checking identity, use base maxAmount
+      }
     }
 
-    // Get recent requests for this address
-    const recentRequests = this.db
-      .query(
-        `
-      SELECT SUM(amount) as total_amount, COUNT(*) as request_count
-      FROM requests
-      WHERE address = ? AND timestamp > ?
-    `
-      )
-      .all(address, now - timeInterval) as {
-      total_amount: number;
-      request_count: number;
-    }[];
+    // Server determines the amount to send (not client)
+    const amount = maxAmount;
 
-    const stats = recentRequests[0] || { total_amount: 0, request_count: 0 };
+    // Use SQLite transaction to prevent race conditions
+    // BEGIN EXCLUSIVE ensures no other transaction can read or write
+    try {
+      this.db.run("BEGIN EXCLUSIVE TRANSACTION");
 
-    // Check number of requests per interval
-    if (stats.request_count >= numberPerInterval) {
-      return {
-        allowed: false,
-        message: `Address ${address} has reached the maximum number of requests (${numberPerInterval}) for this time interval`,
-      };
-    }
-
-    // Check total amount per interval
-    if (stats.total_amount + amount > maxAmount) {
-      return {
-        allowed: false,
-        message: `Address ${address} would exceed the maximum amount limit of ${maxAmount} DEMOS for this time interval`,
-      };
-    }
-
-    // Record the request
-    this.db.run(
+      // Get recent requests for this address within the transaction
+      const recentRequests = this.db
+        .query(
+          `
+        SELECT SUM(amount) as total_amount, COUNT(*) as request_count
+        FROM requests
+        WHERE address = ? AND timestamp > ?
       `
-      INSERT INTO requests (address, amount, ip, timestamp)
-      VALUES (?, ?, ?, ?)
-    `,
-      [address, amount, ip, now]
-    );
+        )
+        .all(address, now - timeInterval) as {
+        total_amount: number;
+        request_count: number;
+      }[];
 
-    return {
-      allowed: true,
-      message: "Request allowed",
-    };
+      const stats = recentRequests[0] || { total_amount: 0, request_count: 0 };
+
+      // Check number of requests per interval
+      if (stats.request_count >= numberPerInterval) {
+        this.db.run("ROLLBACK");
+        return {
+          allowed: false,
+          message: `Address has reached the maximum number of requests (${numberPerInterval}) for this time interval. Please try again later.`,
+        };
+      }
+
+      // Check total amount per interval
+      if (stats.total_amount + amount > maxAmount) {
+        this.db.run("ROLLBACK");
+        return {
+          allowed: false,
+          message: `This request would exceed the maximum amount limit for this time interval. Please try again later.`,
+        };
+      }
+
+      // Record the request atomically
+      this.db.run(
+        `
+        INSERT INTO requests (address, amount, ip, timestamp)
+        VALUES (?, ?, ?, ?)
+      `,
+        [address, amount, ip, now]
+      );
+
+      // Commit the transaction
+      this.db.run("COMMIT");
+
+      return {
+        allowed: true,
+        message: "Request allowed",
+        amount: amount,
+      };
+    } catch (error) {
+      // Rollback on any error
+      try {
+        this.db.run("ROLLBACK");
+      } catch (rollbackError) {
+        console.error("Error rolling back transaction:", rollbackError);
+      }
+      console.error("Error in checkAndRecordRequest:", error);
+      return {
+        allowed: false,
+        message: "An error occurred processing your request. Please try again.",
+      };
+    }
   }
 
   public async getAddressStats(address: string): Promise<{

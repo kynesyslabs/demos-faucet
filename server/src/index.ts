@@ -411,33 +411,38 @@ function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
   });
 
   // Request tokens endpoint (moved to setupRoutes)
-  app.post("/api/request", faucetRateLimit, async (req, res) => {
+  // SECURITY: Server controls amount based on identity, not client
+  app.post("/api/request", faucetRateLimit, validateFaucetRequest, async (req, res) => {
     try {
-      const { address, amount } = req.body;
+      const { address } = req.body; // Amount is NOT accepted from client
       const ip = getClientIP(req);
 
       // Validate input
-      if (!address || !amount) {
+      if (!address) {
         return res.status(400).json({
           status: 400,
-          body: "Address and amount are required",
+          body: "Address is required",
         });
       }
 
       // Force balance update before processing request
       await forceBalanceUpdate(faucetServer, demos);
 
-      // Check safeguards
+      // Check safeguards and get server-determined amount
+      // SECURITY: Uses atomic transactions to prevent race conditions
       const safeguards = faucetServer.getSafeguards();
-      const checkResult = await safeguards.checkSafeguards(address, amount, ip);
+      const checkResult = await safeguards.checkAndRecordRequest(address, ip, demos);
 
       if (!checkResult.allowed) {
-        logger.warn("Safeguard check failed", { address, amount, ip, reason: checkResult.message });
-        return res.status(400).json({
-          status: 400,
+        logger.warn("Safeguard check failed", { address, ip, reason: checkResult.message });
+        return res.status(429).json({
+          status: 429,
           body: checkResult.message,
         });
       }
+
+      // Server determines amount (50 DEM base, 100 DEM with identity)
+      const amount = checkResult.amount!;
 
       // Transfer the tokens
       let result = await transferTokens(demos, faucetServer, amount, address);
@@ -445,19 +450,22 @@ function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
       if (result.success) {
         // Force balance update after successful transfer
         await forceBalanceUpdate(faucetServer, demos);
-        
+
+        logger.info("Faucet request successful", { address, amount, ip, txHash: result.txHash });
+
         return res.json({
           status: 200,
           body: {
             txHash: result.txHash,
             confirmationBlock: result.confirmationBlock,
             message: result.message,
+            amount: amount, // Return amount to client
           },
         });
       } else {
-        return res.status(400).json({
-          status: 400,
-          body: result.message,
+        return res.status(500).json({
+          status: 500,
+          body: "Transaction failed. Please try again later.",
         });
       }
     } catch (error) {

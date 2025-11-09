@@ -47,22 +47,21 @@ export const createSlowDown = (windowMs: number, delayAfter: number, delayMs: nu
 };
 
 // Input validation middleware
+// SECURITY: Server controls amount based on identity, client only provides address
 export const validateFaucetRequest = [
   body('address')
     .isString()
     .trim()
-    .isLength({ min: 64, max: 64 })
-    .matches(/^[a-fA-F0-9]{64}$/)
-    .withMessage('Invalid address format'),
-  body('amount')
-    .isInt({ min: 1, max: 1000 })
-    .withMessage('Amount must be between 1 and 1000'),
-  
+    .isLength({ min: 66, max: 66 })
+    .matches(/^0x[0-9a-fA-F]{64}$/)
+    .withMessage('Invalid address format - must be 0x followed by 64 hex characters'),
+  // REMOVED: amount validation - server determines amount based on identity
+
   (req: Request, res: Response, next: NextFunction) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       logger.warn(`Validation error for IP: ${req.ip}`, { errors: errors.array() });
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'Invalid request parameters',
         details: errors.array()
       });
