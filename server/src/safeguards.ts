@@ -75,7 +75,7 @@ export class Safeguards {
     }
 
     // Server determines the amount to send (not client)
-    const amount = maxAmount;
+    let amount = maxAmount;
 
     // Use SQLite transaction to prevent race conditions
     // BEGIN EXCLUSIVE ensures no other transaction can read or write

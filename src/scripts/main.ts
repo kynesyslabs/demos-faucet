@@ -275,8 +275,12 @@ class App {
         }
 
         // Show success message with the actual amount received from server
-        const receivedAmount = responseData.body.amount || "tokens";
-        this.showSuccess(`Successfully received ${receivedAmount} DEM!`);
+        const receivedAmount = responseData.body?.amount;
+        this.showSuccess(
+          receivedAmount !== null && receivedAmount !== undefined
+            ? `Successfully received ${receivedAmount} DEMOS!`
+            : "Successfully received tokens!"
+        );
 
         // Update balance after successful request
         await this.updateFaucetStatus();

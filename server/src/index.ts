@@ -442,7 +442,16 @@ function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
       }
 
       // Server determines amount (50 DEM base, 100 DEM with identity)
-      const amount = checkResult.amount!;
+      const amount = checkResult.amount;
+
+      // Defensive validation
+      if (typeof amount !== 'number' || amount <= 0) {
+        logger.error("Invalid amount from safeguards", { address, amount });
+        return res.status(500).json({
+          status: 500,
+          body: "Internal server error",
+        });
+      }
 
       // Transfer the tokens
       let result = await transferTokens(demos, faucetServer, amount, address);
