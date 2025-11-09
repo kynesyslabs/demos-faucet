@@ -1,13 +1,15 @@
 {
-  "name": "my-ts-app",
+  "name": "demos-faucet-frontend",
   "version": "1.0.0",
+  "type": "module",
   "scripts": {
-    "start": "webpack serve --mode development",
-    "serve": "npx serve dist -p 4442",
-    "build": "webpack --mode production",
-    "type-check": "tsc --noEmit"
+    "dev": "bun run --watch src/server.ts",
+    "start": "bun run src/server.ts",
+    "build": "bun build src/scripts/main.ts --outdir dist --target browser --minify --entry-naming main.js",
+    "serve": "bun run src/server.ts"
   },
   "dependencies": {
+    "hono": "^4.0.0",
     "@kynesyslabs/demosdk": "^2.2.71",
     "axios": "^1.6.0",
     "crypto": "^1.0.1",
@@ -15,14 +17,7 @@
     "dotenv-webpack": "^8.1.0"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.17",
-    "css-loader": "^6.8.1",
-    "html-webpack-plugin": "^5.5.3",
-    "style-loader": "^3.3.3",
-    "ts-loader": "^9.5.0",
-    "typescript": "^5.0.0",
-    "webpack": "^5.89.0",
-    "webpack-cli": "^5.1.4",
-    "webpack-dev-server": "^4.15.1"
+    "bun-types": "latest",
+    "typescript": "^5.0.0"
   }
 }

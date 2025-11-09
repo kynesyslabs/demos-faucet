@@ -1,10 +1,12 @@
-import "../styles/main.css";
 class App {
   public remoteBackendUrl: string;
   private readonly FIXED_AMOUNT: number = 10; // Fixed amount of 10 DEMOS
 
   constructor() {
-    this.remoteBackendUrl = process.env.REMOTE_BACKEND_URL || "";
+    // Use window global injected by server, fallback to docker internal URL
+    this.remoteBackendUrl = (window as any).__BACKEND_URL__ || 
+                           "http://backend:3010";
+    console.log("Using backend URL:", this.remoteBackendUrl);
     this.testBackendUrl();
     this.init();
   }
@@ -27,24 +29,13 @@ class App {
   }
 
   private async init(): Promise<void> {
-    const app = document.getElementById("app");
-    if (app) {
-      // Add balance display
-      const balanceDisplay = document.createElement("div");
-      balanceDisplay.className = "balance-display";
-      balanceDisplay.innerHTML = `
-        <div class="balance-inner">
-          <span class="label">Available Balance</span>
-          <span class="amount">Loading...</span>
-        </div>
-      `;
-      app
-        .querySelector(".faucet-content")
-        ?.insertBefore(balanceDisplay, app.querySelector(".faucet-form"));
+    // Initial status fetch
+    await this.updateFaucetStatus();
 
-      // Initial balance fetch
-      await this.updateBalance();
-    }
+    // Set up periodic status updates every 30 seconds
+    setInterval(() => {
+      this.updateFaucetStatus();
+    }, 30000);
 
     // Faucet form and its event listener
     const faucetForm = document.getElementById("faucet-form");
@@ -66,25 +57,100 @@ class App {
     }
   }
 
-  private async updateBalance(): Promise<void> {
+  private async updateFaucetStatus(): Promise<void> {
+    const faucetAddress = document.getElementById("faucet-address");
+    const faucetBalance = document.getElementById("faucet-balance");
+    const connectionStatus = document.getElementById("connection-status");
+    
     try {
+      console.log("Fetching faucet status from:", `${this.remoteBackendUrl}/api/balance`);
+      
+      // Update connection status
+      if (connectionStatus) {
+        connectionStatus.textContent = "Fetching...";
+        connectionStatus.className = "status-value fetching";
+      }
+      
       const response = await fetch(`${this.remoteBackendUrl}/api/balance`);
+      
       if (response.ok) {
         const data = await response.json();
-        console.log("Balance response: " + JSON.stringify(data, null, 2));
-        const balance = data.body.balance * 10; // Multiply by 10
-        console.log("Balance: " + balance);
-        const balanceDisplay = document.querySelector(
-          ".balance-display .amount"
-        );
-        if (balanceDisplay) {
-          balanceDisplay.textContent = `${balance} DEMOS`;
+        console.log("Faucet status response:", JSON.stringify(data, null, 2));
+        
+        // Update connection status
+        if (connectionStatus) {
+          connectionStatus.textContent = "Connected";
+          connectionStatus.className = "status-value connected";
         }
+        
+        // Update faucet address
+        if (data.body && data.body.publicKey && faucetAddress) {
+          const fullAddress = data.body.publicKey;
+          const shortAddress = fullAddress.substring(0, 5) + "..." + fullAddress.substring(fullAddress.length - 5);
+          faucetAddress.innerHTML = `<span class="clickable-address" title="Click to copy full address" data-address="${fullAddress}">${shortAddress}</span>`;
+          
+          // Add click-to-copy functionality
+          const addressSpan = faucetAddress.querySelector('.clickable-address');
+          if (addressSpan) {
+            addressSpan.addEventListener('click', () => {
+              navigator.clipboard.writeText(fullAddress).then(() => {
+                console.log('Address copied to clipboard:', fullAddress);
+                // Show temporary feedback
+                const originalText = addressSpan.textContent;
+                addressSpan.textContent = 'Copied!';
+                setTimeout(() => {
+                  addressSpan.textContent = originalText;
+                }, 1000);
+              }).catch(err => {
+                console.error('Failed to copy address:', err);
+              });
+            });
+          }
+        }
+        
+        // Update balance
+        if (data.body && data.body.balance && faucetBalance) {
+          const balance = data.body.balance; // Raw balance as string
+          console.log("Faucet balance:", balance);
+          faucetBalance.textContent = balance;
+          
+          // Add visual indicator for low balance (checking if numeric value is low)
+          const numericBalance = Number(balance);
+          if (numericBalance < 1000000000000000000) { // Less than 1 unit in wei
+            faucetBalance.className = "status-value low-balance";
+          } else {
+            faucetBalance.className = "status-value";
+          }
+        }
+        
       } else {
-        console.error("Failed to fetch balance");
+        const errorData = await response.text();
+        console.error("Failed to fetch faucet status:", response.status, errorData);
+        
+        if (connectionStatus) {
+          connectionStatus.textContent = "Error";
+          connectionStatus.className = "status-value error";
+        }
+        if (faucetBalance) {
+          faucetBalance.textContent = "Unavailable";
+        }
+        if (faucetAddress) {
+          faucetAddress.textContent = "Unavailable";
+        }
       }
     } catch (error) {
-      console.error("Error fetching balance:", error);
+      console.error("Error fetching faucet status:", error);
+      
+      if (connectionStatus) {
+        connectionStatus.textContent = "Offline";
+        connectionStatus.className = "status-value offline";
+      }
+      if (faucetBalance) {
+        faucetBalance.textContent = "Connection error";
+      }
+      if (faucetAddress) {
+        faucetAddress.textContent = "Connection error";
+      }
     }
   }
 
@@ -144,9 +210,18 @@ class App {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
+        const requestBody = { address, amount };
+        console.log("Sending request to backend:", {
+          url: `${this.remoteBackendUrl}/api/request`,
+          body: requestBody
+        });
+
         let result = await fetch(`${this.remoteBackendUrl}/api/request`, {
           method: "POST",
-          body: JSON.stringify({ address, amount }),
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(requestBody),
           signal: controller.signal,
         });
 
@@ -188,7 +263,9 @@ class App {
 
         if (transactionInfo && txHashElement) {
           txHashElement.innerHTML = `<a href="https://explorer.demos.sh/transactions/${responseData.body.txHash}" target="_blank" rel="noopener noreferrer">${responseData.body.txHash}</a>`;
-          if (confirmationBlockElement) {
+          if (confirmationBlockElement && responseData.body.confirmationBlock && responseData.body.confirmationBlock !== -1) {
+            confirmationBlockElement.textContent = responseData.body.confirmationBlock.toString();
+          } else if (confirmationBlockElement) {
             confirmationBlockElement.textContent = "Pending confirmation";
           }
           transactionInfo.classList.remove("hidden");
@@ -198,7 +275,7 @@ class App {
         this.showSuccess("Tokens requested successfully!");
 
         // Update balance after successful request
-        await this.updateBalance();
+        await this.updateFaucetStatus();
 
         buttonText.textContent = "Success!";
         setTimeout(() => {

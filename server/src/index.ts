@@ -1,25 +1,93 @@
-import * as demosdk from "@kynesyslabs/demosdk";
+import { websdk } from "@kynesyslabs/demosdk";
 import dotenv from "dotenv";
 import { Safeguards } from "./safeguards";
 import express from "express";
-import cors from "cors"
+import cors from "cors";
+import helmet from "helmet";
+import {
+  logger,
+  createRateLimit,
+  createSlowDown,
+  validateFaucetRequest,
+  securityHeaders,
+  requestLogger,
+  DDoSProtection,
+  honeypot,
+  errorHandler,
+  getClientIP
+} from "./security";
 
 dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 3000;
+const ddosProtection = new DDoSProtection();
+
+// Trust proxy headers when behind reverse proxy
+// Using specific proxy count instead of 'true' to satisfy express-rate-limit security
+// Set to 1 if behind single proxy (nginx), 2 if behind double proxy (cloudflare + nginx), etc.
+app.set('trust proxy', 1);
+
+// Security middleware
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+    },
+  },
+}));
+
+app.use(securityHeaders);
+app.use(requestLogger);
+app.use(honeypot);
+app.use(ddosProtection.middleware);
+
+// Clean up DDoS protection data every 5 minutes
+setInterval(() => ddosProtection.cleanup(), 5 * 60 * 1000);
+
+// Rate limiting
+const generalRateLimit = createRateLimit(
+  15 * 60 * 1000, // 15 minutes
+  100, // max requests per window
+  "Too many requests from this IP"
+);
+
+const faucetRateLimit = createRateLimit(
+  60 * 1000, // 1 minute
+  3, // max 3 requests per minute
+  "Too many faucet requests"
+);
+
+const slowDownMiddleware = createSlowDown(
+  15 * 60 * 1000, // 15 minutes
+  5, // delay after 5 requests
+  1000 // 1 second delay
+);
+
+app.use(generalRateLimit);
+app.use(slowDownMiddleware);
 
 // Enable CORS for all routes
 app.use(
   cors({
-    origin: ["https://faucet.demos.sh", "http://localhost:4442"], // Add your frontend domains
-    methods: ["GET", "POST"],
-    allowedHeaders: ["Content-Type"],
+    origin: [
+      "https://faucet.demos.sh", 
+      "http://localhost:4442", 
+      "http://localhost:8080",
+      "http://localhost:3000",
+      "http://localhost:3010"
+    ],
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true
   })
 );
 
-// Parse JSON bodies
-app.use(express.json());
+// Parse JSON bodies with size limit
+app.use(express.json({ limit: '10mb' }));
 
 export class FaucetServer {
   private mnemonic: string;
@@ -30,6 +98,11 @@ export class FaucetServer {
   public maxAmount: number;
   public port: number;
   private safeguards: Safeguards;
+  private cachedBalance: {
+    balance: string; // Keep as raw balance string
+    lastUpdated: number;
+    addressInfo?: any;
+  } | null = null;
 
   constructor() {
     this.mnemonic = process.env.MNEMONIC || "";
@@ -61,6 +134,31 @@ export class FaucetServer {
   public getSafeguards() {
     return this.safeguards;
   }
+
+  public setCachedBalance(rawBalance: string, addressInfo?: any) {
+    // Clean addressInfo to remove BigInt values that cause JSON serialization issues
+    const cleanAddressInfo = addressInfo ? {
+      ...addressInfo,
+      balance: addressInfo.balance?.toString(), // Convert BigInt to string
+      nonce: addressInfo.nonce?.toString(),
+      // Remove any other potential BigInt fields
+    } : undefined;
+
+    this.cachedBalance = {
+      balance: rawBalance,
+      lastUpdated: Date.now(),
+      addressInfo: cleanAddressInfo
+    };
+    
+    logger.info("Balance cache updated:", {
+      balance: rawBalance,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  public getCachedBalance() {
+    return this.cachedBalance;
+  }
 }
 
 // SECTION Definitions
@@ -72,7 +170,7 @@ export class FaucetServer {
  * @returns A promise that resolves to an object containing the success status and a message.
  */
 async function transferTokens(
-  demos: demosdk.websdk.Demos,
+  demos: websdk.Demos,
   faucetServer: FaucetServer,
   amount: number,
   to: string
@@ -85,20 +183,37 @@ async function transferTokens(
   try {
     console.log("Transferring tokens to: " + to);
     
-    // Get current nonce
-    const fromAddress = faucetServer.getPublicKey();
-    const nonce = await demos.getNonce(fromAddress);
-    console.log(`Using nonce: ${nonce}`);
+    // Create transaction
+    const transaction = await demos.transfer(to, amount);
+    console.log("Transaction created, confirming...");
     
-    // Send transaction using simplified method (like working tools)
-    const txHash = await demos.send(to, amount, nonce);
-    console.log(`Transaction sent with hash: ${txHash}`);
+    // Confirm transaction
+    const confirmation = await demos.confirm(transaction);
+    console.log("Confirmation: " + JSON.stringify(confirmation, null, 2));
+    
+    if (!confirmation.response.data.valid) {
+      console.log("Transaction failed during confirmation");
+      return {
+        success: false,
+        message: "Transaction failed: " + JSON.stringify(confirmation, null, 2),
+        txHash: "",
+        confirmationBlock: -1,
+      };
+    }
+    
+    const txHash = confirmation.response.data.transaction.hash;
+    const confirmationBlock = confirmation.response.data.reference_block;
+    
+    // Broadcast transaction
+    console.log("Broadcasting transaction...");
+    const result = await demos.broadcast(confirmation);
+    console.log("Broadcast result: " + JSON.stringify(result, null, 2));
     
     return {
       success: true,
       message: `Transaction successful: ${txHash}`,
       txHash: txHash,
-      confirmationBlock: -1, // Not available with send method
+      confirmationBlock: confirmationBlock,
     };
   } catch (error) {
     console.error("Transaction failed:", error);
@@ -111,160 +226,310 @@ async function transferTokens(
   }
 }
 
+/**
+ * Updates the balance cache by fetching from the network
+ */
+/**
+ * Retry mechanism for network operations with exponential backoff
+ */
+async function retryWithBackoff<T>(
+  operation: () => Promise<T>,
+  maxAttempts: number = 3,
+  baseDelay: number = 5000,
+  operationName: string = "operation"
+): Promise<T> {
+  let lastError: Error;
+  
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      logger.info(`${operationName} - Attempt ${attempt}/${maxAttempts}`);
+      const result = await operation();
+      
+      if (attempt > 1) {
+        logger.info(`${operationName} succeeded on attempt ${attempt}`);
+      }
+      
+      return result;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      logger.warn(`${operationName} failed on attempt ${attempt}/${maxAttempts}:`, lastError.message);
+      
+      if (attempt < maxAttempts) {
+        const delay = baseDelay * Math.pow(1.5, attempt - 1); // Exponential backoff
+        logger.info(`Retrying ${operationName} in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  
+  logger.error(`${operationName} failed after ${maxAttempts} attempts`);
+  throw lastError!;
+}
+
+async function updateBalanceCache(faucetServer: FaucetServer, demos: websdk.Demos) {
+  try {
+    const publicKey = faucetServer.getPublicKey();
+    if (!publicKey) {
+      logger.warn("No public key available for balance update");
+      return;
+    }
+    
+    const addrInfo = await retryWithBackoff(
+      () => demos.getAddressInfo(publicKey),
+      3,
+      5000,
+      "getAddressInfo for balance cache"
+    );
+    const rawBalance = addrInfo?.balance;
+    
+    if (rawBalance !== undefined) {
+      faucetServer.setCachedBalance(rawBalance.toString(), addrInfo);
+      logger.info("Balance cache updated successfully", { balance: rawBalance });
+    } else {
+      logger.warn("Failed to get balance from network");
+    }
+  } catch (error) {
+    logger.error("Error updating balance cache:", error);
+  }
+}
+
 // SECTION Server logic
+/**
+ * Starts the periodic balance updater
+ */
+function startBalanceUpdater(faucetServer: FaucetServer, demos: websdk.Demos) {
+  logger.info("Starting periodic balance updater (30 second interval)");
+  
+  // Initial update
+  updateBalanceCache(faucetServer, demos);
+  
+  // Set up periodic updates every 30 seconds (reduced from 5 seconds)
+  setInterval(() => {
+    updateBalanceCache(faucetServer, demos);
+  }, 30000);
+}
+
+/**
+ * Forces a balance update from the blockchain
+ */
+async function forceBalanceUpdate(faucetServer: FaucetServer, demos: websdk.Demos): Promise<void> {
+  logger.info("Forcing balance update from blockchain");
+  await updateBalanceCache(faucetServer, demos);
+}
+
+/**
+ * Sets up API routes after initialization
+ */
+function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
+  // Root route
+  app.get("/", (req, res) => {
+    res.json({ 
+      service: "Demos Faucet API",
+      version: "1.0.0",
+      endpoints: [
+        "/api/health",
+        "/api/balance",
+        "/api/request",
+        "/api/stats/address",
+        "/api/stats/global"
+      ]
+    });
+  });
+
+  // API Routes
+  app.get("/api/test", (req, res) => {
+    logger.info("Test endpoint hit");
+    res.json({ message: "Hello World", timestamp: new Date().toISOString() });
+  });
+
+  app.get("/api/balance", async (req, res) => {
+    try {
+      const publicKey = faucetServer.getPublicKey();
+      logger.info("Getting live balance for public key: " + publicKey);
+      
+      if (!publicKey) {
+        logger.error("No public key available");
+        return res.status(500).json({ 
+          error: "Faucet wallet not initialized",
+          status: 500,
+          body: { balance: 0 }
+        });
+      }
+
+      // Get live balance directly from network with retry mechanism
+      try {
+        const addrInfo = await retryWithBackoff(
+          () => demos.getAddressInfo(publicKey),
+          3,
+          5000,
+          "getAddressInfo for balance endpoint"
+        );
+        const rawBalance = addrInfo?.balance;
+        
+        if (rawBalance !== undefined) {
+          logger.info("Live balance retrieved successfully", { balance: rawBalance });
+          return res.json({
+            status: 200,
+            body: {
+              balance: rawBalance.toString(),
+              publicKey: publicKey,
+              cached: false,
+              message: "Live balance (cache disabled)"
+            },
+          });
+        } else {
+          logger.warn("Failed to get balance from network");
+          return res.status(500).json({
+            status: 500,
+            body: { 
+              balance: 0,
+              message: "Failed to retrieve balance from network",
+              publicKey: publicKey
+            }
+          });
+        }
+      } catch (networkError) {
+        logger.error("Network error getting balance:", networkError);
+        return res.status(500).json({
+          status: 500,
+          body: { 
+            balance: 0,
+            message: "Network error retrieving balance",
+            error: networkError instanceof Error ? networkError.message : 'Unknown error',
+            publicKey: publicKey
+          }
+        });
+      }
+    } catch (error) {
+      logger.error("Error getting balance:", error);
+      return res.status(500).json({ 
+        error: "Failed to get balance",
+        status: 500,
+        body: { balance: 0 }
+      });
+    }
+  });
+
+  // Request tokens endpoint (moved to setupRoutes)
+  app.post("/api/request", faucetRateLimit, async (req, res) => {
+    try {
+      const { address, amount } = req.body;
+      const ip = getClientIP(req);
+
+      // Validate input
+      if (!address || !amount) {
+        return res.status(400).json({
+          status: 400,
+          body: "Address and amount are required",
+        });
+      }
+
+      // Force balance update before processing request
+      await forceBalanceUpdate(faucetServer, demos);
+
+      // Check safeguards
+      const safeguards = faucetServer.getSafeguards();
+      const checkResult = await safeguards.checkSafeguards(address, amount, ip);
+
+      if (!checkResult.allowed) {
+        logger.warn("Safeguard check failed", { address, amount, ip, reason: checkResult.message });
+        return res.status(400).json({
+          status: 400,
+          body: checkResult.message,
+        });
+      }
+
+      // Transfer the tokens
+      let result = await transferTokens(demos, faucetServer, amount, address);
+
+      if (result.success) {
+        // Force balance update after successful transfer
+        await forceBalanceUpdate(faucetServer, demos);
+        
+        return res.json({
+          status: 200,
+          body: {
+            txHash: result.txHash,
+            confirmationBlock: result.confirmationBlock,
+            message: result.message,
+          },
+        });
+      } else {
+        return res.status(400).json({
+          status: 400,
+          body: result.message,
+        });
+      }
+    } catch (error) {
+      logger.error("Error processing faucet request:", error);
+      return res.status(500).json({
+        status: 500,
+        body: "Internal server error",
+      });
+    }
+  });
+
+  app.get("/api/stats/address", async (req, res) => {
+    try {
+      const address = req.query.address as string;
+
+      if (!address) {
+        return res.status(400).json({
+          status: 400,
+          body: "Address parameter is required",
+        });
+      }
+
+      const stats = await faucetServer.getSafeguards().getAddressStats(address);
+      res.json({
+        status: 200,
+        body: stats,
+      });
+    } catch (error) {
+      logger.error("Error getting address stats:", error);
+      res.status(500).json({ error: "Failed to get address stats" });
+    }
+  });
+
+  app.get("/api/stats/global", async (req, res) => {
+    try {
+      const stats = await faucetServer.getSafeguards().getGlobalStats();
+      res.json({
+        status: 200,
+        body: stats,
+      });
+    } catch (error) {
+      logger.error("Error getting global stats:", error);
+      res.status(500).json({ error: "Failed to get global stats" });
+    }
+  });
+
+  app.get("/api/health", (req, res) => {
+    res.json({
+      status: "healthy",
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      walletConnected: !!faucetServer.getPublicKey()
+    });
+  });
+
+  // 404 handler
+  app.use((req, res) => {
+    logger.warn("404 - Route not found", { path: req.path, method: req.method });
+    res.status(404).json({ error: "Not Found" });
+  });
+
+  // Error handler
+  app.use(errorHandler);
+}
+
 /**
  * Starts the server.
  */
 async function server() {
-  const server = Bun.serve({
-    port: faucetServer.port,
-    async fetch(req) {
-      // Handle CORS
-      if (req.method === "OPTIONS") {
-        return new Response(null, {
-          headers: {
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type",
-          },
-        });
-      }
-
-      // Get client IP
-      const ip = req.headers.get("x-forwarded-for") || "unknown";
-
-      // Your API endpoints here
-      if (req.url.endsWith("/api/test")) {
-        console.log("Test endpoint hit");
-        return new Response("Hello World", {
-          status: 200,
-          headers: {
-            "Access-Control-Allow-Origin": "https://faucet.demos.sh",
-            "Access-Control-Allow-Methods": "GET, POST",
-            "Access-Control-Allow-Headers": "Content-Type",
-          },
-        });
-      }
-
-      if (req.url.endsWith("/api/faucet")) {
-        // TODO: Your faucet logic using @kynesyslabs/demosdk
-      }
-
-      if (req.url.endsWith("/api/balance")) {
-        console.log("Getting balance for: " + faucetServer.getPublicKey());
-        let addrInfo = await demos.getAddressInfo(faucetServer.getPublicKey());
-        console.log("Address info: ");
-        console.log(addrInfo);
-
-        let balance = addrInfo?.balance;
-        return Response.json(
-          {
-            status: 200,
-            body: {
-              balance: balance,
-            },
-          },
-          {
-            headers: {
-              "Access-Control-Allow-Origin": "https://faucet.demos.sh",
-              "Access-Control-Allow-Methods": "GET, POST",
-              "Access-Control-Allow-Headers": "Content-Type",
-            },
-          }
-        );
-      }
-
-      if (req.url.endsWith("/api/request")) {
-        // Getting the request body
-        let body = await req.json();
-
-        // Check safeguards
-        const safeguards = faucetServer.getSafeguards();
-        const checkResult = await safeguards.checkSafeguards(
-          body.address,
-          body.amount,
-          ip
-        );
-
-        if (!checkResult.allowed) {
-          return Response.json({
-            status: 400,
-            body: checkResult.message,
-          });
-        }
-
-        // Transfer the tokens
-        let result = await transferTokens(
-          demos,
-          faucetServer,
-          body.amount,
-          body.address
-        );
-
-        let responseBody = {};
-        if (result.success) {
-          responseBody = {
-            status: 200,
-            body: {
-              txHash: result.txHash,
-              message: result.message,
-            },
-          };
-        } else {
-          responseBody = {
-            status: 400,
-            body: result.message,
-          };
-        }
-        return Response.json(responseBody, {
-          headers: {
-            "Access-Control-Allow-Origin": "https://faucet.demos.sh",
-            "Access-Control-Allow-Methods": "GET, POST",
-            "Access-Control-Allow-Headers": "Content-Type",
-          },
-        });
-      }
-
-      if (req.url.endsWith("/api/stats/address")) {
-        const url = new URL(req.url);
-        const address = url.searchParams.get("address");
-
-        if (!address) {
-          return Response.json({
-            status: 400,
-            body: "Address parameter is required",
-          });
-        }
-
-        const stats = await faucetServer
-          .getSafeguards()
-          .getAddressStats(address);
-        return Response.json({
-          status: 200,
-          body: stats,
-        });
-      }
-
-      if (req.url.endsWith("/api/stats/global")) {
-        const stats = await faucetServer.getSafeguards().getGlobalStats();
-        return Response.json({
-          status: 200,
-          body: stats,
-        });
-      }
-
-      if (req.url.endsWith("/api/history")) {
-        // TODO: Your history logic using @kynesyslabs/demosdk
-      }
-
-      if (req.url.endsWith("/api/status")) {
-        // TODO: Your status logic using @kynesyslabs/demosdk
-      }
-
-      return new Response("Not Found", { status: 404 });
-    },
+  app.listen(port, () => {
+    logger.info(`Faucet server listening on port ${port}`);
   });
-  console.log(`Listening on http://localhost:${server.port}`);
 }
 
 // SECTION Initialization logic
@@ -272,7 +537,7 @@ async function server() {
 // Initialize the faucet server
 const faucetServer = new FaucetServer();
 // Initialize the demos instance
-let demos = new demosdk.websdk.Demos();
+let demos = new websdk.Demos();
 // Connecting to the network
 await demos.connect(faucetServer.getRpcUrl());
 // Connecting to the wallet
@@ -281,6 +546,10 @@ console.log("Trying to connect with mnemonic");
 let walletAddress = await demos.connectWallet(mnemonic);
 console.log("Connected to the network and wallet: " + walletAddress);
 faucetServer.setPublicKey(walletAddress);
+
+// Setup routes and start balance updater
+setupRoutes(faucetServer, demos);
+startBalanceUpdater(faucetServer, demos);
 
 // Starting the server
 server();

@@ -6,7 +6,7 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
     ports:
-      - "4442:4442"
+      - "8080:4442"
     depends_on:
       - backend
     env_file:

@@ -3,19 +3,39 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Demos Faucet</title>
+    <title>Demos Network Faucet</title>
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
     />
+    <link rel="stylesheet" href="/styles/main.css" />
   </head>
   <body>
+    <script type="module" src="/dist/main.js"></script>
     <div id="app">
       <div class="container">
         <div class="faucet-card">
           <div class="faucet-header">
-            <h1>Demos Faucet</h1>
+            <div class="logo-container">
+              <img src="/styles/demos-logo.svg" alt="Demos Network" class="demos-logo" />
+              <h1>Faucet</h1>
+            </div>
             <div class="network-badge">Testnet</div>
+          </div>
+
+          <div class="faucet-status">
+            <div class="status-row">
+              <span class="status-label">Faucet Address:</span>
+              <span class="status-value" id="faucet-address">Loading...</span>
+            </div>
+            <div class="status-row">
+              <span class="status-label">Available Balance:</span>
+              <span class="status-value" id="faucet-balance">Loading...</span>
+            </div>
+            <div class="status-row">
+              <span class="status-label">Connection Status:</span>
+              <span class="status-value" id="connection-status">Connecting...</span>
+            </div>
           </div>
 
           <div class="faucet-content">
@@ -69,6 +89,20 @@
             </div>
           </div>
         </div>
+        
+        <footer class="footer">
+          <div class="footer-content">
+            <div class="footer-links">
+              <a href="https://demos.sh" target="_blank" rel="noopener noreferrer">Learn more about Demos Network</a>
+              <span class="separator">•</span>
+              <a href="https://explorer.demos.sh" target="_blank" rel="noopener noreferrer">Explorer</a>
+            </div>
+            <div class="footer-branding">
+              <span>Powered by</span>
+              <img src="/styles/demos-logo.svg" alt="Demos" class="footer-logo" />
+            </div>
+          </div>
+        </footer>
       </div>
     </div>
   </body>

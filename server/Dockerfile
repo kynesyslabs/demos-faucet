@@ -2,26 +2,30 @@ FROM oven/bun:1-alpine
 
 WORKDIR /app
 
-# Copy package files
-COPY package*.json bun.lockb ./
-
-# Install dependencies
-RUN bun install --frozen-lockfile && bun pm trust --all || true
-
-# Copy source code
-COPY src/ ./src/
-COPY tsconfig.json ./
-
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs
 RUN adduser -S faucet -u 1001
 
-# Create directories for logs and database
-RUN mkdir -p /app/logs /app/data
+# Create directories for logs and database with proper ownership
+RUN mkdir -p /app/logs /app/data && chown faucet:nodejs /app /app/logs /app/data
 
-# Set ownership
-RUN chown -R faucet:nodejs /app
+# Copy package files with proper ownership
+COPY --chown=faucet:nodejs package.json ./
+COPY --chown=faucet:nodejs bun.lockb* ./
+
+# Install dependencies as root
+RUN bun install && bun pm trust --all || true
+
+# Change ownership of only the necessary directories (not node_modules)
+RUN chown faucet:nodejs /app && \
+    chown -R faucet:nodejs /app/logs /app/data
+
+# Switch to non-root user after installation
 USER faucet
+
+# Copy source code with proper ownership
+COPY --chown=faucet:nodejs src/ ./src/
+COPY --chown=faucet:nodejs tsconfig.json ./
 
 # Expose port
 EXPOSE 3000
