@@ -23,7 +23,7 @@ async function runTests() {
   try {
     // Test 1: Basic request within limits
     console.log("📝 Test 1: Basic request within limits");
-    const result1 = await safeguards.checkAndRecordRequest("test1", "127.0.0.1");
+    const result1 = await safeguards.checkAndRecordRequest("0x1111111111111111111111111111111111111111111111111111111111111111", "127.0.0.1");
     console.log("Response:", JSON.stringify(result1, null, 2));
     assert(result1.allowed, "Basic request should be allowed");
     assert(
@@ -38,7 +38,7 @@ async function runTests() {
 
     // Test 2: Multiple requests from same address (rate limiting)
     console.log("📝 Test 2: Multiple requests from same address");
-    const address = "test2";
+    const address = "0x2222222222222222222222222222222222222222222222222222222222222222";
     for (let i = 0; i < numberPerInterval + 1; i++) {
       console.log(`\nRequest ${i + 1}:`);
       const result = await safeguards.checkAndRecordRequest(

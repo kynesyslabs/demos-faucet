@@ -111,13 +111,19 @@ export class Safeguards {
         };
       }
 
-      // Check total amount per interval
-      if (stats.total_amount + amount > maxAmount) {
-        this.db.run("ROLLBACK");
-        return {
-          allowed: false,
-          message: `This request would exceed the maximum amount limit for this time interval. Please try again later.`,
-        };
+      // Check total amount per interval and adjust if needed
+      const remainingAllowance = maxAmount - stats.total_amount;
+      if (amount > remainingAllowance) {
+        if (remainingAllowance <= 0) {
+          this.db.run("ROLLBACK");
+          return {
+            allowed: false,
+            message: `Address has reached the maximum amount limit (${maxAmount}) for this time interval. Please try again later.`,
+          };
+        }
+        // Reduce amount to remaining allowance
+        console.log(`[Safeguards] Reducing request amount from ${amount} to ${remainingAllowance} for address ${address} (total: ${stats.total_amount}/${maxAmount})`);
+        amount = remainingAllowance;
       }
 
       // Record the request atomically
