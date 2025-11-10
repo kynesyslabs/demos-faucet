@@ -1,6 +1,8 @@
 import { Database } from "bun:sqlite";
 import { FaucetServer } from "./index";
 
+const IDENTITY_BONUS_AMOUNT = 100;
+
 interface RequestRecord {
   address: string;
   amount: number;
@@ -37,6 +39,57 @@ export class Safeguards {
     `);
   }
 
+  private hasConnectedIdentity(addressInfo: any): boolean {
+    const identities = addressInfo?.identities;
+    if (!identities) {
+      return false;
+    }
+
+    const contexts = identities instanceof Map
+      ? Array.from(identities.values())
+      : Object.values(identities);
+
+    for (const context of contexts) {
+      if (!context) {
+        continue;
+      }
+
+      const providerIdentities = context instanceof Map
+        ? Array.from(context.values())
+        : Object.values(context);
+
+      for (const ids of providerIdentities) {
+        if (Array.isArray(ids) && ids.length > 0) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  private async resolveMaxAmount(address: string, demos?: any): Promise<number> {
+    let amount = this.faucetServer.maxAmount;
+
+    if (!demos) {
+      return amount;
+    }
+
+    try {
+      const addressInfo = await demos.getAddressInfo(address);
+      if (this.hasConnectedIdentity(addressInfo)) {
+        amount = Math.max(amount, IDENTITY_BONUS_AMOUNT);
+        console.log(`Address ${address} has connected identity, increased limit to ${amount} DEM`);
+      } else {
+        console.log(`Address ${address} has no connected identity, using base limit of ${amount} DEM`);
+      }
+    } catch (error) {
+      console.error(`Error checking identity for ${address}:`, error);
+    }
+
+    return amount;
+  }
+
   public async checkAndRecordRequest(
     address: string,
     ip: string,
@@ -49,30 +102,7 @@ export class Safeguards {
     const now = Math.floor(Date.now() / 1000);
     const timeInterval = this.faucetServer.timeInterval;
     const numberPerInterval = this.faucetServer.numberPerInterval;
-    let maxAmount = this.faucetServer.maxAmount;
-
-    // Check for Demos identity and increase limit if present
-    if (demos) {
-      try {
-        const addressInfo = await demos.getAddressInfo(address);
-        // Check if address has an identity (could be string, array, or object)
-        const hasIdentity = addressInfo?.identity &&
-          (typeof addressInfo.identity === 'string' ? addressInfo.identity.length > 0 :
-           Array.isArray(addressInfo.identity) ? addressInfo.identity.length > 0 :
-           typeof addressInfo.identity === 'object' ? Object.keys(addressInfo.identity).length > 0 :
-           Boolean(addressInfo.identity));
-
-        if (hasIdentity) {
-          maxAmount = 100; // Increase to 100 DEM for addresses with identity
-          console.log(`Address ${address} has identity, increased limit to ${maxAmount} DEM`);
-        } else {
-          console.log(`Address ${address} has no identity, using base limit of ${maxAmount} DEM`);
-        }
-      } catch (error) {
-        console.error(`Error checking identity for ${address}:`, error);
-        // If error checking identity, use base maxAmount
-      }
-    }
+    const maxAmount = await this.resolveMaxAmount(address, demos);
 
     // Server determines the amount to send (not client)
     let amount = maxAmount;
@@ -174,30 +204,7 @@ export class Safeguards {
     const now = Math.floor(Date.now() / 1000);
     const timeInterval = this.faucetServer.timeInterval;
     const numberPerInterval = this.faucetServer.numberPerInterval;
-    let maxAmount = this.faucetServer.maxAmount;
-
-    // Check for Demos identity and increase limit if present
-    if (demos) {
-      try {
-        const addressInfo = await demos.getAddressInfo(address);
-        // Check if address has an identity (could be string, array, or object)
-        const hasIdentity = addressInfo?.identity &&
-          (typeof addressInfo.identity === 'string' ? addressInfo.identity.length > 0 :
-           Array.isArray(addressInfo.identity) ? addressInfo.identity.length > 0 :
-           typeof addressInfo.identity === 'object' ? Object.keys(addressInfo.identity).length > 0 :
-           Boolean(addressInfo.identity));
-
-        if (hasIdentity) {
-          maxAmount = 100; // Increase to 100 DEM for addresses with identity
-          console.log(`Address ${address} has identity, increased limit to ${maxAmount} DEM`);
-        } else {
-          console.log(`Address ${address} has no identity, using base limit of ${maxAmount} DEM`);
-        }
-      } catch (error) {
-        console.error(`Error checking identity for ${address}:`, error);
-        // If error checking identity, use base maxAmount
-      }
-    }
+    const maxAmount = await this.resolveMaxAmount(address, demos);
 
     // Server determines the amount to send (not client)
     let amount = maxAmount;

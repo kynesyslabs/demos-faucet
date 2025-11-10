@@ -2,6 +2,7 @@ import { websdk } from "@kynesyslabs/demosdk";
 import dotenv from "dotenv";
 import { Safeguards } from "./safeguards";
 import express from "express";
+import type { Request, Response } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import {
@@ -322,7 +323,7 @@ async function forceBalanceUpdate(faucetServer: FaucetServer, demos: websdk.Demo
  */
 function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
   // Root route
-  app.get("/", (req, res) => {
+  app.get("/", (req: Request, res: Response) => {
     res.json({ 
       service: "Demos Faucet API",
       version: "1.0.0",
@@ -337,12 +338,12 @@ function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
   });
 
   // API Routes
-  app.get("/api/test", (req, res) => {
+  app.get("/api/test", (req: Request, res: Response) => {
     logger.info("Test endpoint hit");
     res.json({ message: "Hello World", timestamp: new Date().toISOString() });
   });
 
-  app.get("/api/balance", async (req, res) => {
+  app.get("/api/balance", async (req: Request, res: Response) => {
     try {
       const publicKey = faucetServer.getPublicKey();
       logger.info("Getting live balance for public key: " + publicKey);
@@ -412,7 +413,7 @@ function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
 
   // Request tokens endpoint (moved to setupRoutes)
   // SECURITY: Server controls amount based on identity, not client
-  app.post("/api/request", faucetRateLimit, validateFaucetRequest, async (req, res) => {
+  app.post("/api/request", faucetRateLimit, validateFaucetRequest, async (req: Request, res: Response) => {
     try {
       const { address } = req.body; // Amount is NOT accepted from client
       const ip = getClientIP(req);
@@ -491,7 +492,7 @@ function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
     }
   });
 
-  app.get("/api/stats/address", async (req, res) => {
+  app.get("/api/stats/address", async (req: Request, res: Response) => {
     try {
       const address = req.query.address as string;
 
@@ -513,7 +514,7 @@ function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
     }
   });
 
-  app.get("/api/stats/global", async (req, res) => {
+  app.get("/api/stats/global", async (req: Request, res: Response) => {
     try {
       const stats = await faucetServer.getSafeguards().getGlobalStats();
       res.json({
@@ -526,7 +527,7 @@ function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
     }
   });
 
-  app.get("/api/health", (req, res) => {
+  app.get("/api/health", (req: Request, res: Response) => {
     res.json({
       status: "healthy",
       timestamp: new Date().toISOString(),
@@ -536,7 +537,7 @@ function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
   });
 
   // 404 handler
-  app.use((req, res) => {
+  app.use((req: Request, res: Response) => {
     logger.warn("404 - Route not found", { path: req.path, method: req.method });
     res.status(404).json({ error: "Not Found" });
   });
