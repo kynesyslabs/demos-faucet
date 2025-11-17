@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"bun run dev:frontend\" \"bun run dev:backend\" --names \"frontend,backend\" --prefix-colors \"cyan,magenta\"",
+    "dev": "concurrently \"bun run dev:frontend\" \"npm run dev:backend\" --names \"frontend,backend\" --prefix-colors \"cyan,magenta\"",
     "dev:frontend": "bun run --watch src/server.ts",
-    "dev:backend": "cd server && bun run dev",
+    "dev:backend": "cd server && npm run dev",
     "start": "bun run src/server.ts",
     "build": "bun build src/scripts/main.ts --outdir dist --target browser --minify --entry-naming main.js",
     "serve": "bun run src/server.ts"
