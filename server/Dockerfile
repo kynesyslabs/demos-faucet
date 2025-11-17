@@ -16,9 +16,8 @@ COPY --chown=faucet:nodejs bun.lockb* ./
 # Install dependencies as root
 RUN bun install && bun pm trust --all || true
 
-# Change ownership of only the necessary directories (not node_modules)
-RUN chown faucet:nodejs /app && \
-    chown -R faucet:nodejs /app/logs /app/data
+# Change ownership of all necessary directories including node_modules
+RUN chown -R faucet:nodejs /app
 
 # Switch to non-root user after installation
 USER faucet
