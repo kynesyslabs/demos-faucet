@@ -7,20 +7,17 @@ RUN addgroup -g 1001 -S nodejs
 RUN adduser -S faucet -u 1001
 
 # Create directories for logs and database with proper ownership
-RUN mkdir -p /app/logs /app/data && chown faucet:nodejs /app /app/logs /app/data
+RUN mkdir -p /app/logs /app/data && chown -R faucet:nodejs /app
 
-# Copy package files with proper ownership
+# Switch to non-root user BEFORE installing dependencies
+USER faucet
+
+# Copy package files
 COPY --chown=faucet:nodejs package.json ./
 COPY --chown=faucet:nodejs bun.lockb* ./
 
-# Install dependencies as root
+# Install dependencies as non-root user (ownership is correct from start)
 RUN bun install && bun pm trust --all || true
-
-# Change ownership of all necessary directories including node_modules
-RUN chown -R faucet:nodejs /app
-
-# Switch to non-root user after installation
-USER faucet
 
 # Copy source code with proper ownership
 COPY --chown=faucet:nodejs src/ ./src/
