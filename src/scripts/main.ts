@@ -1,11 +1,7 @@
 class App {
   public remoteBackendUrl: string;
-  // Note: Amount is now determined by the server (50 DEM base, 100 DEM with identity)
-  // This constant is no longer sent to the backend
-  private readonly FIXED_AMOUNT: number = 10; // Legacy - not used for requests
 
   constructor() {
-    // Use window global injected by server, fallback to docker internal URL
     this.remoteBackendUrl = (window as any).__BACKEND_URL__ || 
                            "http://backend:3010";
     console.log("Using backend URL:", this.remoteBackendUrl);
@@ -16,17 +12,20 @@ class App {
   private async testBackendUrl(): Promise<void> {
     if (!this.remoteBackendUrl) {
       console.error("REMOTE_BACKEND_URL is not set");
+      return;
     }
     console.log("Testing REMOTE_BACKEND_URL: " + this.remoteBackendUrl);
-    // Trying the basic endpoint (we need a high timeout)
-    let result = await fetch(`${this.remoteBackendUrl}/api/test`);
-    if (result.status !== 200) {
-      console.error(
-        "[ERROR] REMOTE_BACKEND_URL is not working: things won't work."
-      );
-    } else {
-      let text = await result.text();
-      console.log("REMOTE_BACKEND_URL is working: " + text);
+    try {
+      const result = await fetch(`${this.remoteBackendUrl}/api/test`, {
+        signal: AbortSignal.timeout(5000)
+      });
+      if (result.ok) {
+        console.log("REMOTE_BACKEND_URL is working");
+      } else {
+        console.error("[ERROR] REMOTE_BACKEND_URL returned:", result.status);
+      }
+    } catch (error) {
+      console.error("[ERROR] REMOTE_BACKEND_URL test failed:", error);
     }
   }
 
@@ -44,17 +43,22 @@ class App {
     if (faucetForm) {
       faucetForm.addEventListener("submit", (event) => {
         event.preventDefault();
-        const address = document.getElementById(
-          "wallet-address"
-        ) as HTMLInputElement;
+        const addressInput = document.getElementById("wallet-address") as HTMLInputElement;
+        const address = addressInput?.value.trim();
 
-        // Basic validation
-        if (!address.value) {
+        if (!address) {
           this.showError("Please enter a wallet address");
+          addressInput?.focus();
           return;
         }
 
-        this.requestTokens(address.value);
+        if (!this.isValidAddress(address)) {
+          this.showError("Invalid address format. Expected 0x followed by 64 hex characters.");
+          addressInput?.focus();
+          return;
+        }
+
+        this.requestTokens(address);
       });
     }
   }
@@ -112,13 +116,12 @@ class App {
         
         // Update balance
         if (data.body && data.body.balance && faucetBalance) {
-          const balance = data.body.balance; // Raw balance as string
+          const balance = data.body.balance;
           console.log("Faucet balance:", balance);
-          faucetBalance.textContent = balance;
+          faucetBalance.textContent = this.formatBalance(balance);
           
-          // Add visual indicator for low balance (checking if numeric value is low)
           const numericBalance = Number(balance);
-          if (numericBalance < 1000000000000000000) { // Less than 1 unit in wei
+          if (numericBalance < 1000000000000000000) {
             faucetBalance.className = "status-value low-balance";
           } else {
             faucetBalance.className = "status-value";
@@ -156,34 +159,57 @@ class App {
     }
   }
 
-  private showError(message: string): void {
-    const messageContainer = document.getElementById("message-container");
-    const messageCard = messageContainer?.querySelector(".message-card");
-    const messageContent = document.getElementById("message-content");
+  private createSafeLink(text: string, href: string): HTMLAnchorElement {
+    const link = document.createElement('a');
+    link.href = href;
+    link.textContent = text;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    return link;
+  }
 
-    if (messageContainer && messageCard && messageContent) {
-      messageCard.classList.remove("success");
-      messageCard.classList.add("error");
-      messageContent.innerHTML = message;
-      messageContainer.classList.remove("hidden");
-    }
+  private formatBalance(rawBalance: string): string {
+    const num = BigInt(rawBalance || '0');
+    const divisor = BigInt('1000000000000000000');
+    const whole = num / divisor;
+    const remainder = num % divisor;
+    const decimal = (remainder * BigInt(10000)) / divisor;
+    const decimalStr = decimal.toString().padStart(4, '0').slice(0, 2);
+    return `${whole}.${decimalStr} DEMOS`;
+  }
+
+  private isValidAddress(address: string): boolean {
+    return /^0x[0-9a-fA-F]{64}$/.test(address);
   }
 
   private showSuccess(message: string): void {
     const messageContainer = document.getElementById("message-container");
     const messageCard = messageContainer?.querySelector(".message-card");
     const messageContent = document.getElementById("message-content");
+    const messageTitle = document.getElementById("message-title");
 
     if (messageContainer && messageCard && messageContent) {
       messageCard.classList.remove("error");
       messageCard.classList.add("success");
-      messageContent.innerHTML = message;
+      messageContent.textContent = message;
+      if (messageTitle) messageTitle.textContent = "Success";
       messageContainer.classList.remove("hidden");
     }
   }
 
-  private async getBalance(address: string): Promise<void> {
-    // TODO: get balance from backend
+  private showError(message: string): void {
+    const messageContainer = document.getElementById("message-container");
+    const messageCard = messageContainer?.querySelector(".message-card");
+    const messageContent = document.getElementById("message-content");
+    const messageTitle = document.getElementById("message-title");
+
+    if (messageContainer && messageCard && messageContent) {
+      messageCard.classList.remove("success");
+      messageCard.classList.add("error");
+      messageContent.textContent = message;
+      if (messageTitle) messageTitle.textContent = "Error";
+      messageContainer.classList.remove("hidden");
+    }
   }
 
   private async requestTokens(address: string): Promise<void> {
@@ -261,15 +287,20 @@ class App {
         // Show transaction info
         const transactionInfo = document.getElementById("transaction-info");
         const txHashElement = document.getElementById("tx-hash");
-        const confirmationBlockElement =
-          document.getElementById("confirmation-block");
+        const confirmationBlockElement = document.getElementById("confirmation-block");
 
         if (transactionInfo && txHashElement) {
-          txHashElement.innerHTML = `<a href="https://explorer.demos.sh/transactions/${responseData.body.txHash}" target="_blank" rel="noopener noreferrer">${responseData.body.txHash}</a>`;
+          txHashElement.textContent = '';
+          const txHash = responseData.body.txHash;
+          const shortHash = `${txHash.substring(0, 10)}...${txHash.substring(txHash.length - 8)}`;
+          const link = this.createSafeLink(shortHash, `https://explorer.demos.sh/transactions/${txHash}`);
+          link.style.color = 'var(--accent-primary)';
+          txHashElement.appendChild(link);
+          
           if (confirmationBlockElement && responseData.body.confirmationBlock && responseData.body.confirmationBlock !== -1) {
-            confirmationBlockElement.textContent = responseData.body.confirmationBlock.toString();
+            confirmationBlockElement.textContent = `#${responseData.body.confirmationBlock}`;
           } else if (confirmationBlockElement) {
-            confirmationBlockElement.textContent = "Pending confirmation";
+            confirmationBlockElement.textContent = "Pending...";
           }
           transactionInfo.classList.remove("hidden");
         }
@@ -314,14 +345,6 @@ class App {
         console.error("Error requesting tokens:", error);
       }
     }
-  }
-
-  private async getTransactionHistory(address: string): Promise<void> {
-    // TODO: get transaction history from backend
-  }
-
-  private async getTransactionStatus(txHash: string): Promise<void> {
-    // TODO: get transaction status from backend
   }
 }
 

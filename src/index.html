@@ -3,12 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Get free DEMOS testnet tokens for the Demos Network" />
+    <meta name="theme-color" content="#02060f" />
     <title>Demos Network Faucet</title>
+    <link rel="preconnect" href="/styles/fonts/" crossorigin />
     <link rel="stylesheet" href="/styles/main.css" />
   </head>
   <body>
+    <a href="#main-content" class="skip-link">Skip to main content</a>
     <script type="module" src="/dist/main.js"></script>
-    <div id="app">
+    <div id="app" role="application">
       <div class="container">
         <div class="faucet-card">
           <div class="faucet-header">
@@ -19,34 +23,41 @@
             <div class="network-badge">Testnet</div>
           </div>
 
-          <div class="faucet-status">
+          <section class="faucet-status" aria-label="Faucet status" aria-live="polite">
             <div class="status-row">
-              <span class="status-label">Faucet Address:</span>
-              <span class="status-value" id="faucet-address">Loading...</span>
+              <span class="status-label" id="address-label">Faucet Address:</span>
+              <span class="status-value" id="faucet-address" aria-labelledby="address-label">Loading...</span>
             </div>
             <div class="status-row">
-              <span class="status-label">Available Balance:</span>
-              <span class="status-value" id="faucet-balance">Loading...</span>
+              <span class="status-label" id="balance-label">Available Balance:</span>
+              <span class="status-value" id="faucet-balance" aria-labelledby="balance-label">Loading...</span>
             </div>
             <div class="status-row">
-              <span class="status-label">Connection Status:</span>
-              <span class="status-value" id="connection-status">Connecting...</span>
+              <span class="status-label" id="status-label">Connection Status:</span>
+              <span class="status-value" id="connection-status" aria-labelledby="status-label" aria-live="polite">Connecting...</span>
             </div>
-          </div>
+          </section>
 
-          <div class="faucet-content">
-            <form id="faucet-form" class="faucet-form">
+          <main id="main-content" class="faucet-content">
+            <form id="faucet-form" class="faucet-form" aria-label="Request tokens">
               <div class="input-group">
+                <label for="wallet-address" class="visually-hidden">Wallet address</label>
                 <input
                   type="text"
                   id="wallet-address"
-                  placeholder="Enter your wallet address"
+                  name="wallet-address"
+                  placeholder="Enter your wallet address (0x...)"
                   required
+                  aria-required="true"
+                  aria-describedby="wallet-address-hint"
+                  autocomplete="off"
+                  spellcheck="false"
                 />
               </div>
+              <span id="wallet-address-hint" class="input-hint">66 characters starting with 0x</span>
               <div class="amount-display">
-                <span class="label">Amount to receive:</span>
-                <span class="amount">50-100 DEMOS (based on identity)</span>
+                <span class="label">You will receive:</span>
+                <span class="amount">50-100 DEMOS <span class="amount-note">(verified identity = 100)</span></span>
               </div>
               <button type="submit" class="request-button">
                 <span class="button-text">Request Tokens</span>
@@ -54,36 +65,29 @@
               </button>
             </form>
 
-            <div id="message-container" class="message-container hidden">
+            <div id="message-container" class="message-container hidden" role="alert" aria-live="assertive">
               <div class="message-card">
-                <h3>Status</h3>
-                <div class="message-content" id="message-content"></div>
+                <h3 id="message-title">Status</h3>
+                <div class="message-content" id="message-content" aria-labelledby="message-title"></div>
               </div>
             </div>
 
-            <div id="transaction-info" class="transaction-info hidden">
+            <div id="transaction-info" class="transaction-info hidden" aria-live="polite">
               <div class="transaction-card">
                 <h3>Transaction Details</h3>
-                <div class="transaction-details">
+                <dl class="transaction-details">
                   <div class="detail-row">
-                    <span class="label">Transaction Hash:</span>
-                    <span class="value" id="tx-hash"></span>
+                    <dt class="label">Transaction Hash:</dt>
+                    <dd class="value" id="tx-hash"></dd>
                   </div>
                   <div class="detail-row">
-                    <span class="label">Confirmation Block:</span>
-                    <span class="value" id="confirmation-block"></span>
+                    <dt class="label">Confirmation Block:</dt>
+                    <dd class="value" id="confirmation-block"></dd>
                   </div>
-                </div>
+                </dl>
               </div>
             </div>
-
-            <div class="transaction-history">
-              <h3>Recent Transactions</h3>
-              <div class="history-list" id="history-list">
-                <!-- Transactions will be added here -->
-              </div>
-            </div>
-          </div>
+          </main>
         </div>
         
         <footer class="footer">

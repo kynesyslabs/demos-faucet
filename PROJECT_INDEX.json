@@ -1,0 +1,53 @@
+{
+  "name": "demos-faucet",
+  "generated": "2026-02-19",
+  "type": "blockchain-faucet",
+  "runtime": "bun",
+  "services": {
+    "frontend": {
+      "entry": "src/server.ts",
+      "port": 4442,
+      "framework": "hono",
+      "modules": [
+        {"name": "server", "path": "src/server.ts"},
+        {"name": "App", "path": "src/scripts/main.ts"}
+      ]
+    },
+    "backend": {
+      "entry": "server/src/index.ts",
+      "port": 3010,
+      "framework": "express",
+      "modules": [
+        {"name": "FaucetServer", "path": "server/src/index.ts", "line": 93},
+        {"name": "Safeguards", "path": "server/src/safeguards.ts", "line": 13},
+        {"name": "security", "path": "server/src/security.ts"}
+      ],
+      "endpoints": [
+        {"method": "GET", "path": "/"},
+        {"method": "GET", "path": "/api/health"},
+        {"method": "GET", "path": "/api/balance"},
+        {"method": "POST", "path": "/api/request", "body": ["address"]},
+        {"method": "GET", "path": "/api/stats/address"},
+        {"method": "GET", "path": "/api/stats/global"}
+      ]
+    }
+  },
+  "dependencies": {
+    "@kynesyslabs/demosdk": "^2.2.70",
+    "hono": "^4.0.0",
+    "express": "^4.19.2",
+    "helmet": "^7.0.0",
+    "winston": "^3.11.0"
+  },
+  "config": {
+    "frontend_env": ["REMOTE_BACKEND_URL"],
+    "backend_env": ["MNEMONIC", "PUBLIC_KEY", "RPC_URL", "TIME_INTERVAL", "NUMBER_PER_INTERVAL", "MAX_AMOUNT", "PORT"]
+  },
+  "commands": {
+    "dev": "bun run dev",
+    "dev:frontend": "bun run dev:frontend",
+    "dev:backend": "cd server && npm run dev",
+    "build": "bun run build",
+    "docker": "docker-compose up --build"
+  }
+}

@@ -48,6 +48,45 @@
   --radius-md: 18px;
   --radius-sm: 10px;
   --transition-base: 250ms ease;
+  --focus-ring: 0 0 0 3px rgba(0, 212, 255, 0.5);
+}
+
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--accent-primary);
+  color: #000;
+  padding: 0.75rem 1.5rem;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  z-index: 1000;
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  top: 1rem;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.input-hint {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+  letter-spacing: 0.02em;
 }
 
 * {
@@ -167,15 +206,18 @@ body::after {
 
 .demos-logo {
   width: 46px;
-  height: auto;
+  height: 46px;
   filter: brightness(12) drop-shadow(0 0 8px rgba(0, 212, 255, 0.5));
+  flex-shrink: 0;
 }
 
 .faucet-header h1 {
   font-family: 'Neue Machina', 'Inter', system-ui, sans-serif;
-  font-size: clamp(2rem, 3vw, 2.5rem);
+  font-size: clamp(1.75rem, 3vw, 2.5rem);
+  font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  line-height: 1.1;
 }
 
 .network-badge {
@@ -255,11 +297,18 @@ body::after {
   font-weight: 600;
   border-bottom: 1px dashed rgba(0, 212, 255, 0.4);
   transition: color var(--transition-base), border-color var(--transition-base);
+  border-radius: 2px;
+  padding: 0 2px;
 }
 
 .clickable-address:hover {
   color: #6af0ff;
   border-bottom-color: rgba(106, 240, 255, 0.7);
+}
+
+.clickable-address:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .clickable-address:active {
@@ -290,7 +339,7 @@ body::after {
 
 .input-group:focus-within {
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 4px rgba(0, 212, 255, 0.15);
+  box-shadow: var(--focus-ring);
 }
 
 .input-group input {
@@ -305,6 +354,10 @@ body::after {
 
 .input-group input::placeholder {
   color: var(--text-muted);
+}
+
+.input-group input:focus {
+  outline: none;
 }
 
 .amount-display {
@@ -328,6 +381,12 @@ body::after {
   color: var(--text-primary);
 }
 
+.amount-display .amount-note {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
 .request-button {
   position: relative;
   overflow: hidden;
@@ -342,16 +401,28 @@ body::after {
   background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
   box-shadow: 0 20px 45px rgba(0, 212, 255, 0.35);
   cursor: pointer;
-  transition: transform var(--transition-base), box-shadow var(--transition-base);
+  transition: transform var(--transition-base), box-shadow var(--transition-base), opacity var(--transition-base);
+  min-height: 54px;
 }
 
-.request-button:hover {
+.request-button:hover:not(:disabled) {
   transform: translateY(-2px);
   box-shadow: 0 25px 55px rgba(0, 212, 255, 0.45);
 }
 
-.request-button:active {
+.request-button:active:not(:disabled) {
   transform: translateY(0);
+}
+
+.request-button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring), 0 20px 45px rgba(0, 212, 255, 0.35);
+}
+
+.request-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .request-button .button-text {
@@ -419,9 +490,25 @@ body::after {
   box-shadow: 0 0 25px rgba(255, 77, 109, 0.35);
 }
 
+.message-card.error .message-content {
+  color: #ff8a9e;
+}
+
 .message-card.success {
   border-color: rgba(25, 243, 162, 0.4);
   box-shadow: 0 0 25px rgba(25, 243, 162, 0.35);
+}
+
+.message-card.success .message-content {
+  color: #7cffcc;
+}
+
+.message-card.success h3 {
+  color: var(--success-green);
+}
+
+.message-card.error h3 {
+  color: var(--error-red);
 }
 
 .message-content {
@@ -433,7 +520,7 @@ body::after {
 .transaction-details {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.75rem;
   margin-top: 1rem;
 }
 
@@ -450,16 +537,35 @@ body::after {
 
 .detail-row .label {
   color: var(--text-muted);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  flex-shrink: 0;
 }
 
 .detail-row .value {
   font-family: 'Neue Machina', 'Inter', sans-serif;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   color: var(--text-primary);
   word-break: break-all;
+  text-align: right;
+}
+
+.detail-row .value a {
+  color: var(--accent-primary);
+  text-decoration: none;
+  transition: color var(--transition-base);
+}
+
+.detail-row .value a:hover {
+  color: #6af0ff;
+  text-decoration: underline;
+}
+
+.detail-row .value a:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: 2px;
 }
 
 .transaction-history {
@@ -521,9 +627,17 @@ body::after {
   color: inherit;
   text-decoration: none;
   transition: color var(--transition-base);
+  border-radius: 2px;
+  padding: 2px 4px;
 }
 
 .footer-links a:hover {
+  color: var(--accent-primary);
+}
+
+.footer-links a:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
   color: var(--accent-primary);
 }
 
@@ -566,40 +680,193 @@ body::after {
   }
 }
 
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.faucet-card {
+  animation: fadeIn 0.4s ease-out;
+}
+
+.faucet-status {
+  animation: fadeIn 0.5s ease-out 0.1s both;
+}
+
+.faucet-form {
+  animation: fadeIn 0.5s ease-out 0.2s both;
+}
+
+.status-value.fetching {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.message-container:not(.hidden) {
+  animation: floatIn 0.3s ease-out;
+}
+
+.transaction-info:not(.hidden) {
+  animation: floatIn 0.3s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  
+  .request-button:hover {
+    transform: none;
+  }
+  
+  .clickable-address:active {
+    transform: none;
+  }
+}
+
 @media (max-width: 640px) {
   .container {
-    padding: 1.5rem 1rem 3rem;
+    padding: 1rem 0.75rem 2rem;
   }
 
   .faucet-card {
-    padding: 1.75rem;
+    padding: 1.25rem;
+    border-radius: var(--radius-md);
   }
 
   .faucet-header {
     flex-direction: column;
     align-items: flex-start;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+  }
+  
+  .logo-container {
+    gap: 0.75rem;
+  }
+  
+  .demos-logo {
+    width: 36px;
+    height: 36px;
   }
 
   .network-badge {
     align-self: flex-start;
+    font-size: 0.7rem;
+    padding: 0.25rem 0.75rem;
+  }
+
+  .faucet-status {
+    padding: 1rem;
   }
 
   .status-row {
     flex-direction: column;
     align-items: flex-start;
+    gap: 0.25rem;
+  }
+  
+  .status-label {
+    font-size: 0.8rem;
+  }
+  
+  .status-value {
+    font-size: 0.9rem;
+    word-break: break-all;
+  }
+
+  .faucet-content {
+    gap: 1.25rem;
+  }
+  
+  .faucet-form {
+    gap: 1rem;
+  }
+
+  .input-group input {
+    padding: 0.875rem 1rem;
+    font-size: 16px;
+  }
+
+  .request-button {
+    padding: 1rem;
+    min-height: 52px;
   }
 
   .detail-row {
     flex-direction: column;
     align-items: flex-start;
+    gap: 0.25rem;
+  }
+  
+  .detail-row .value {
+    text-align: left;
+    font-size: 0.8rem;
+  }
+
+  .footer {
+    padding-bottom: 1.5rem;
   }
 
   .footer-links {
     flex-direction: column;
     gap: 0.5rem;
+    font-size: 0.85rem;
   }
 
   .footer-links .separator {
     display: none;
+  }
+  
+  .footer-branding {
+    font-size: 0.8rem;
+  }
+}
+
+@media print {
+  body {
+    background: white;
+    color: black;
+  }
+  
+  body::before,
+  body::after,
+  .faucet-card::before,
+  .faucet-card::after {
+    display: none;
+  }
+  
+  .faucet-card {
+    background: white;
+    border: 1px solid #ccc;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
+  
+  .request-button,
+  .faucet-form,
+  .footer {
+    display: none;
+  }
+  
+  a {
+    color: black;
+    text-decoration: underline;
   }
 }
