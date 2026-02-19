@@ -38,7 +38,7 @@
   --accent-glow: rgba(0, 212, 255, 0.45);
   --text-primary: #f5f8ff;
   --text-secondary: #a6b4ce;
-  --text-muted: #7c88a1;
+  --text-muted: #8b99b8;
   --success-green: #19f3a2;
   --warning-yellow: #ffcb57;
   --error-red: #ff4d6d;
@@ -48,6 +48,9 @@
   --radius-md: 18px;
   --radius-sm: 10px;
   --transition-base: 250ms ease;
+  --transition-fast: 150ms ease;
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --focus-ring: 0 0 0 3px rgba(0, 212, 255, 0.5);
 }
 
@@ -150,6 +153,7 @@ body::after {
   align-items: center;
   justify-content: center;
   gap: 2rem;
+  perspective: 1200px;
 }
 
 .faucet-card {
@@ -162,6 +166,48 @@ body::after {
   box-shadow: 0 25px 60px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
   backdrop-filter: blur(32px) saturate(160%);
   overflow: hidden;
+  transform-style: preserve-3d;
+  transition: transform 0.15s ease-out;
+  will-change: transform;
+  animation: fadeIn 0.4s var(--ease-out-quart);
+}
+
+.faucet-card.tilt-active {
+  --tilt-x: 0deg;
+  --tilt-y: 0deg;
+  transform: rotateX(var(--tilt-x)) rotateY(var(--tilt-y));
+}
+
+.floating-logo {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  width: 48px;
+  height: 48px;
+  z-index: 100;
+  pointer-events: none;
+  opacity: 0.15;
+  filter: brightness(10);
+  animation: floatRotate 20s linear infinite;
+  transform-style: preserve-3d;
+}
+
+@keyframes floatRotate {
+  0% {
+    transform: rotateY(0deg) rotateX(10deg);
+  }
+  25% {
+    transform: rotateY(90deg) rotateX(-5deg);
+  }
+  50% {
+    transform: rotateY(180deg) rotateX(10deg);
+  }
+  75% {
+    transform: rotateY(270deg) rotateX(-5deg);
+  }
+  100% {
+    transform: rotateY(360deg) rotateX(10deg);
+  }
 }
 
 .faucet-card::before {
@@ -183,6 +229,25 @@ body::after {
   background: radial-gradient(circle, rgba(0, 212, 255, 0.35), transparent 70%);
   filter: blur(40px);
   pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.faucet-card .shine {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    circle at var(--shine-x, 50%) var(--shine-y, 50%),
+    rgba(255, 255, 255, 0.08) 0%,
+    transparent 50%
+  );
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  z-index: 2;
+}
+
+.faucet-card:hover .shine {
+  opacity: 1;
 }
 
 .faucet-card > * {
@@ -209,6 +274,8 @@ body::after {
   height: 46px;
   filter: brightness(12) drop-shadow(0 0 8px rgba(0, 212, 255, 0.5));
   flex-shrink: 0;
+  animation: floatRotate 15s linear infinite;
+  transform-style: preserve-3d;
 }
 
 .faucet-header h1 {
@@ -334,12 +401,26 @@ body::after {
   padding: 0.15rem;
   display: flex;
   align-items: center;
-  transition: border-color var(--transition-base), box-shadow var(--transition-base);
+  transition: border-color var(--transition-base), box-shadow var(--transition-base), background var(--transition-base);
 }
 
 .input-group:focus-within {
   border-color: var(--accent-primary);
   box-shadow: var(--focus-ring);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.input-group.typing {
+  animation: inputPulse 1.5s var(--ease-out-quart) infinite;
+}
+
+@keyframes inputPulse {
+  0%, 100% {
+    box-shadow: var(--focus-ring);
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.25);
+  }
 }
 
 .input-group input {
@@ -358,6 +439,25 @@ body::after {
 
 .input-group input:focus {
   outline: none;
+}
+
+.input-group.valid {
+  border-color: rgba(25, 243, 162, 0.4);
+  box-shadow: 0 0 0 3px rgba(25, 243, 162, 0.2);
+}
+
+.input-group.invalid {
+  border-color: rgba(255, 77, 109, 0.5);
+  box-shadow: 0 0 0 3px rgba(255, 77, 109, 0.2);
+  animation: inputShake 0.4s var(--ease-out-quart);
+}
+
+@keyframes inputShake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
 }
 
 .amount-display {
@@ -401,7 +501,7 @@ body::after {
   background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
   box-shadow: 0 20px 45px rgba(0, 212, 255, 0.35);
   cursor: pointer;
-  transition: transform var(--transition-base), box-shadow var(--transition-base), opacity var(--transition-base);
+  transition: transform 150ms var(--ease-out-quart), box-shadow 200ms var(--ease-out-quart), opacity var(--transition-base);
   min-height: 54px;
 }
 
@@ -411,7 +511,8 @@ body::after {
 }
 
 .request-button:active:not(:disabled) {
-  transform: translateY(0);
+  transform: translateY(0) scale(0.98);
+  transition-duration: 50ms;
 }
 
 .request-button:focus-visible {
@@ -429,6 +530,29 @@ body::after {
   position: relative;
   z-index: 2;
   color: #01040a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.request-button.loading {
+  pointer-events: none;
+}
+
+.request-button.loading .button-text {
+  opacity: 0.9;
+}
+
+.request-button.success {
+  background: linear-gradient(135deg, var(--success-green), #00d4a0);
+  animation: buttonSuccess 0.5s var(--ease-out-expo);
+}
+
+@keyframes buttonSuccess {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+  100% { transform: scale(1); }
 }
 
 .button-glow {
@@ -439,15 +563,28 @@ body::after {
   opacity: 0.7;
   z-index: 1;
   pointer-events: none;
+  transition: opacity var(--transition-base);
 }
 
-.request-button.loading {
-  opacity: 0.7;
-  cursor: wait;
+.request-button:active:not(:disabled) .button-glow {
+  opacity: 0.9;
 }
 
-.request-button.loading .button-text {
-  color: rgba(1, 4, 10, 0.7);
+.button-ripple {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.4);
+  transform: scale(0);
+  animation: ripple 0.6s var(--ease-out-quart);
+  pointer-events: none;
+  z-index: 3;
+}
+
+@keyframes ripple {
+  to {
+    transform: scale(4);
+    opacity: 0;
+  }
 }
 
 .spinner {
@@ -458,8 +595,12 @@ body::after {
   border-top-color: rgba(1, 4, 10, 0.9);
   border-radius: 50%;
   margin-right: 0.5rem;
-  animation: spin 0.9s linear infinite;
+  animation: spin 0.8s linear infinite;
   vertical-align: middle;
+}
+
+.request-button.loading .button-text {
+  color: rgba(1, 4, 10, 0.7);
 }
 
 .message-container.hidden,
@@ -483,11 +624,13 @@ body::after {
   text-transform: uppercase;
   font-size: 0.85rem;
   color: var(--text-muted);
+  transition: color var(--transition-base);
 }
 
 .message-card.error {
   border-color: rgba(255, 77, 109, 0.4);
   box-shadow: 0 0 25px rgba(255, 77, 109, 0.35);
+  animation: messageEnter 0.35s var(--ease-out-quart);
 }
 
 .message-card.error .message-content {
@@ -497,6 +640,7 @@ body::after {
 .message-card.success {
   border-color: rgba(25, 243, 162, 0.4);
   box-shadow: 0 0 25px rgba(25, 243, 162, 0.35);
+  animation: messageEnter 0.35s var(--ease-out-quart);
 }
 
 .message-card.success .message-content {
@@ -509,6 +653,17 @@ body::after {
 
 .message-card.error h3 {
   color: var(--error-red);
+}
+
+@keyframes messageEnter {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .message-content {
@@ -663,12 +818,6 @@ body::after {
   display: none !important;
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 @keyframes floatIn {
   from {
     opacity: 0;
@@ -698,16 +847,12 @@ body::after {
   }
 }
 
-.faucet-card {
-  animation: fadeIn 0.4s ease-out;
-}
-
 .faucet-status {
-  animation: fadeIn 0.5s ease-out 0.1s both;
+  animation: fadeIn 0.5s var(--ease-out-quart) 0.1s both;
 }
 
 .faucet-form {
-  animation: fadeIn 0.5s ease-out 0.2s both;
+  animation: fadeIn 0.5s var(--ease-out-quart) 0.2s both;
 }
 
 .status-value.fetching {
@@ -715,11 +860,11 @@ body::after {
 }
 
 .message-container:not(.hidden) {
-  animation: floatIn 0.3s ease-out;
+  animation: floatIn 0.3s var(--ease-out-quart);
 }
 
 .transaction-info:not(.hidden) {
-  animation: floatIn 0.3s ease-out;
+  animation: floatIn 0.3s var(--ease-out-quart);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -738,9 +883,18 @@ body::after {
   .clickable-address:active {
     transform: none;
   }
+  
+  .demos-logo,
+  .floating-logo {
+    animation: none;
+  }
 }
 
 @media (max-width: 640px) {
+  .floating-logo {
+    display: none;
+  }
+
   .container {
     padding: 1rem 0.75rem 2rem;
   }

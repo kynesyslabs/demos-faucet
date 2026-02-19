@@ -1,12 +1,60 @@
 class App {
   public remoteBackendUrl: string;
+  private tiltEnabled: boolean = true;
 
   constructor() {
-    this.remoteBackendUrl = (window as any).__BACKEND_URL__ || 
+    this.remoteBackendUrl = (window as any).__BACKEND_URL__ ?? 
                            "http://backend:3010";
     console.log("Using backend URL:", this.remoteBackendUrl);
     this.testBackendUrl();
     this.init();
+    this.initTiltEffect();
+  }
+
+  private initTiltEffect(): void {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      this.tiltEnabled = false;
+      return;
+    }
+
+    const card = document.querySelector('.faucet-card') as HTMLElement;
+    const shine = document.querySelector('.faucet-card .shine') as HTMLElement;
+    if (!card) return;
+
+    card.classList.add('tilt-active');
+
+    const handleMove = (e: MouseEvent) => {
+      if (!this.tiltEnabled) return;
+
+      const rect = card.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      
+      const mouseX = e.clientX - centerX;
+      const mouseY = e.clientY - centerY;
+      
+      const maxTilt = 4;
+      const tiltY = (mouseX / (rect.width / 2)) * maxTilt;
+      const tiltX = -((mouseY / (rect.height / 2)) * maxTilt);
+      
+      card.style.setProperty('--tilt-x', `${tiltX}deg`);
+      card.style.setProperty('--tilt-y', `${tiltY}deg`);
+
+      if (shine) {
+        const shineX = ((e.clientX - rect.left) / rect.width) * 100;
+        const shineY = ((e.clientY - rect.top) / rect.height) * 100;
+        shine.style.setProperty('--shine-x', `${shineX}%`);
+        shine.style.setProperty('--shine-y', `${shineY}%`);
+      }
+    };
+
+    const handleLeave = () => {
+      card.style.setProperty('--tilt-x', '0deg');
+      card.style.setProperty('--tilt-y', '0deg');
+    };
+
+    card.addEventListener('mousemove', handleMove);
+    card.addEventListener('mouseleave', handleLeave);
   }
 
   private async testBackendUrl(): Promise<void> {
@@ -30,37 +78,103 @@ class App {
   }
 
   private async init(): Promise<void> {
-    // Initial status fetch
     await this.updateFaucetStatus();
 
-    // Set up periodic status updates every 30 seconds
     setInterval(() => {
       this.updateFaucetStatus();
     }, 30000);
 
-    // Faucet form and its event listener
+    this.initInputAnimations();
+    this.initButtonRipple();
+
     const faucetForm = document.getElementById("faucet-form");
     if (faucetForm) {
       faucetForm.addEventListener("submit", (event) => {
         event.preventDefault();
         const addressInput = document.getElementById("wallet-address") as HTMLInputElement;
+        const inputGroup = addressInput?.closest('.input-group');
         const address = addressInput?.value.trim();
 
         if (!address) {
+          inputGroup?.classList.add('invalid');
+          addressInput?.setAttribute('aria-invalid', 'true');
           this.showError("Please enter a wallet address");
           addressInput?.focus();
+          setTimeout(() => {
+            inputGroup?.classList.remove('invalid');
+            addressInput?.setAttribute('aria-invalid', 'false');
+          }, 500);
           return;
         }
 
         if (!this.isValidAddress(address)) {
+          inputGroup?.classList.add('invalid');
+          addressInput?.setAttribute('aria-invalid', 'true');
           this.showError("Invalid address format. Expected 0x followed by 64 hex characters.");
           addressInput?.focus();
+          setTimeout(() => {
+            inputGroup?.classList.remove('invalid');
+            addressInput?.setAttribute('aria-invalid', 'false');
+          }, 500);
           return;
         }
 
+        inputGroup?.classList.remove('invalid');
+        addressInput?.setAttribute('aria-invalid', 'false');
+        inputGroup?.classList.add('valid');
         this.requestTokens(address);
       });
     }
+  }
+
+  private initInputAnimations(): void {
+    const addressInput = document.getElementById("wallet-address") as HTMLInputElement;
+    const inputGroup = addressInput?.closest('.input-group') as HTMLElement;
+    
+    if (!addressInput || !inputGroup) return;
+
+    let typingTimeout: ReturnType<typeof setTimeout>;
+    
+    addressInput.addEventListener('input', () => {
+      inputGroup.classList.add('typing');
+      clearTimeout(typingTimeout);
+      typingTimeout = setTimeout(() => {
+        inputGroup.classList.remove('typing');
+      }, 150);
+
+      const value = addressInput.value.trim();
+      if (value && this.isValidAddress(value)) {
+        inputGroup.classList.remove('invalid');
+        inputGroup.classList.add('valid');
+      } else if (value) {
+        inputGroup.classList.remove('valid');
+      } else {
+        inputGroup.classList.remove('valid', 'invalid');
+      }
+    });
+
+    addressInput.addEventListener('blur', () => {
+      inputGroup.classList.remove('typing');
+    });
+  }
+
+  private initButtonRipple(): void {
+    const button = document.querySelector('.request-button') as HTMLButtonElement;
+    if (!button) return;
+
+    button.addEventListener('click', (e) => {
+      const rect = button.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+
+      const ripple = document.createElement('span');
+      ripple.className = 'button-ripple';
+      ripple.style.left = `${x}px`;
+      ripple.style.top = `${y}px`;
+
+      button.appendChild(ripple);
+      setTimeout(() => ripple.remove(), 600);
+    });
   }
 
   private async updateFaucetStatus(): Promise<void> {
@@ -229,6 +343,8 @@ class App {
       messageContent
     ) {
       // Show loading state
+      submitButton.disabled = true;
+      submitButton.setAttribute('aria-busy', 'true');
       submitButton.classList.add("loading");
       buttonText.innerHTML = '<span class="spinner"></span>Processing...';
       messageContainer.classList.add("hidden");
@@ -260,27 +376,26 @@ class App {
 
         if (!result.ok) {
           // Handle specific safeguard errors
-          if (responseData.body.includes("exceeds maximum allowed amount")) {
+          const body = responseData?.body;
+        if (typeof body === 'string' && body.includes("exceeds maximum allowed amount")) {
             this.showError(
               "Requested amount exceeds the maximum allowed limit"
             );
-          } else if (responseData.body.includes("maximum number of requests")) {
+          } else if (typeof body === 'string' && body.includes("maximum number of requests")) {
             this.showError(
               "You have reached the maximum number of requests for this time period"
             );
-          } else if (
-            responseData.body.includes("would exceed the maximum amount limit")
-          ) {
+          } else if (typeof body === 'string' && body.includes("would exceed the maximum amount limit")) {
             this.showError(
               "This request would exceed your total amount limit for this time period"
             );
           } else {
             this.showError(
-              responseData.body || `Server returned ${result.status}`
+              body || `Server returned ${result.status}`
             );
           }
           throw new Error(
-            responseData.body || `Server returned ${result.status}`
+            body || `Server returned ${result.status}`
           );
         }
 
@@ -313,14 +428,16 @@ class App {
             : "Successfully received tokens!"
         );
 
-        // Update balance after successful request
         await this.updateFaucetStatus();
 
+        submitButton.classList.add("success");
         buttonText.textContent = "Success!";
+        
         setTimeout(() => {
           buttonText.textContent = "Request Tokens";
-          submitButton.classList.remove("loading");
-          // Hide messages after 10 seconds
+          submitButton.disabled = false;
+          submitButton.removeAttribute('aria-busy');
+          submitButton.classList.remove("loading", "success");
           messageContainer.classList.add("hidden");
           if (transactionInfo) {
             transactionInfo.classList.add("hidden");
@@ -341,6 +458,8 @@ class App {
 
         this.showError(errorMessage);
         buttonText.textContent = errorMessage;
+        submitButton.disabled = false;
+        submitButton.removeAttribute('aria-busy');
         submitButton.classList.remove("loading");
         console.error("Error requesting tokens:", error);
       }
