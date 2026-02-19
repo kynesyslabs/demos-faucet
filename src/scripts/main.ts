@@ -6,7 +6,7 @@ class App {
 
   constructor() {
     this.remoteBackendUrl = (window as any).__BACKEND_URL__ ?? 
-                           "http://backend:3010";
+                           "https://faucetbackend.demos.sh";
     console.log("Using backend URL:", this.remoteBackendUrl);
     this.testBackendUrl();
     this.init();

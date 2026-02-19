@@ -14,8 +14,8 @@ app.get('/', (c) => {
   let html = readFileSync(join(process.cwd(), 'src/index.html'), 'utf-8');
 
   // Inject backend URL as a global variable
-  // Use the environment variable from docker-compose, fallback to localhost
-  const backendUrl = process.env.REMOTE_BACKEND_URL || 'http://localhost:3010';
+  // Use runtime environment when available; otherwise fallback to public backend.
+  const backendUrl = process.env.REMOTE_BACKEND_URL || 'https://faucetbackend.demos.sh';
   console.log('Injecting backend URL into frontend:', backendUrl);
 
   // SECURITY: Properly escape the URL to prevent XSS
@@ -23,11 +23,17 @@ app.get('/', (c) => {
   const safeBackendUrl = JSON.stringify(backendUrl);
   const envScript = `<script>window.__BACKEND_URL__ = ${safeBackendUrl};</script>`;
 
-  // Insert before the main script tag
-  html = html.replace(
-    '<script type="module" src="/dist/main.js"></script>',
-    `${envScript}\n    <script type="module" src="/dist/main.js"></script>`
-  );
+  // Insert before the app bundle script tag (supports optional attributes like defer)
+  const bundleScriptRegex = /<script\s+type="module"\s+src="\/dist\/main\.js"[^>]*><\/script>/;
+  if (bundleScriptRegex.test(html)) {
+    html = html.replace(bundleScriptRegex, `${envScript}\n    $&`);
+  } else if (html.includes('</head>')) {
+    // Fallback injection point if markup changes again
+    html = html.replace('</head>', `    ${envScript}\n  </head>`);
+    console.warn('Bundle script tag not found; injected backend URL in <head> instead');
+  } else {
+    console.warn('No safe injection point found for backend URL script');
+  }
 
   return c.html(html);
 });
