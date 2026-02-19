@@ -88,7 +88,7 @@ app.use(
 );
 
 // Parse JSON bodies with size limit
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '1kb' }));
 
 export class FaucetServer {
   private mnemonic: string;
@@ -496,10 +496,10 @@ function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
     try {
       const address = req.query.address as string;
 
-      if (!address) {
+      if (!address || !/^0x[0-9a-fA-F]{64}$/.test(address)) {
         return res.status(400).json({
           status: 400,
-          body: "Address parameter is required",
+          body: "Invalid address format - must be 0x followed by 64 hex characters",
         });
       }
 
