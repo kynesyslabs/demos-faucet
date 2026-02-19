@@ -1,6 +1,7 @@
 {
   "name": "demos-faucet",
   "generated": "2026-02-19",
+  "updated": "2026-02-19",
   "type": "blockchain-faucet",
   "runtime": "bun",
   "services": {
@@ -8,9 +9,10 @@
       "entry": "src/server.ts",
       "port": 4442,
       "framework": "hono",
+      "bundle": "dist/main.js",
       "modules": [
         {"name": "server", "path": "src/server.ts"},
-        {"name": "App", "path": "src/scripts/main.ts"}
+        {"name": "App", "path": "src/scripts/main.ts", "features": ["tilt-effect", "cleanup", "clipboard-fallback"]}
       ]
     },
     "backend": {
@@ -19,17 +21,24 @@
       "framework": "express",
       "modules": [
         {"name": "FaucetServer", "path": "server/src/index.ts", "line": 93},
-        {"name": "Safeguards", "path": "server/src/safeguards.ts", "line": 13},
-        {"name": "security", "path": "server/src/security.ts"}
+        {"name": "Safeguards", "path": "server/src/safeguards.ts", "features": ["identity-check", "rate-limiting", "sqlite"]},
+        {"name": "Security", "path": "server/src/security.ts", "features": ["ddos-protection", "rate-limit", "slow-down"]}
       ],
       "endpoints": [
         {"method": "GET", "path": "/"},
+        {"method": "GET", "path": "/api/test"},
         {"method": "GET", "path": "/api/health"},
         {"method": "GET", "path": "/api/balance"},
         {"method": "POST", "path": "/api/request", "body": ["address"]},
-        {"method": "GET", "path": "/api/stats/address"},
+        {"method": "GET", "path": "/api/stats/address", "query": ["address"]},
         {"method": "GET", "path": "/api/stats/global"}
-      ]
+      ],
+      "rateLimits": {
+        "ddos": {"threshold": 50, "window": "1min", "block": "15min"},
+        "general": {"max": 100, "window": "15min"},
+        "faucet": {"max": 30, "window": "1min"},
+        "safeguards": {"requests": "NUMBER_PER_INTERVAL", "amount": "MAX_AMOUNT", "window": "TIME_INTERVAL"}
+      }
     }
   },
   "dependencies": {
@@ -37,17 +46,40 @@
     "hono": "^4.0.0",
     "express": "^4.19.2",
     "helmet": "^7.0.0",
-    "winston": "^3.11.0"
+    "winston": "^3.11.0",
+    "express-rate-limit": "latest",
+    "express-slow-down": "latest"
   },
   "config": {
     "frontend_env": ["REMOTE_BACKEND_URL"],
-    "backend_env": ["MNEMONIC", "PUBLIC_KEY", "RPC_URL", "TIME_INTERVAL", "NUMBER_PER_INTERVAL", "MAX_AMOUNT", "PORT"]
+    "backend_env": {
+      "required": ["MNEMONIC", "RPC_URL"],
+      "optional": {
+        "PUBLIC_KEY": "",
+        "TIME_INTERVAL": "86400",
+        "NUMBER_PER_INTERVAL": "1",
+        "MAX_AMOUNT": "50",
+        "PORT": "3010"
+      }
+    }
   },
   "commands": {
     "dev": "bun run dev",
     "dev:frontend": "bun run dev:frontend",
-    "dev:backend": "cd server && npm run dev",
+    "dev:backend": "cd server && bun run dev",
     "build": "bun run build",
     "docker": "docker-compose up --build"
-  }
+  },
+  "documentation": {
+    "CLAUDE.md": "Design context and guidelines",
+    "ANALYSIS_REPORT.md": "Security/UX/Code quality analysis",
+    "PROJECT_INDEX.md": "This file"
+  },
+  "recentCommits": [
+    "fix(rate-limit): increase faucet rate limit from 3 to 30 req/min",
+    "feat(ui): improve accessibility and performance",
+    "fix(frontend): add clipboard fallback for mobile",
+    "fix(frontend): prevent memory leak",
+    "fix(security): harden backend security"
+  ]
 }
