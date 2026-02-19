@@ -249,9 +249,9 @@ class App {
           const balance = data.body.balance;
           console.log("Faucet balance:", balance);
           faucetBalance.textContent = this.formatBalance(balance);
-          
-          const numericBalance = Number(balance);
-          if (numericBalance < 1000000000000000000) {
+
+          const numericBalance = this.parseIntegerBalance(balance);
+          if (numericBalance !== null && numericBalance < BigInt(100)) {
             faucetBalance.className = "status-value low-balance";
           } else {
             faucetBalance.className = "status-value";
@@ -299,13 +299,36 @@ class App {
   }
 
   private formatBalance(rawBalance: string): string {
-    const num = BigInt(rawBalance || '0');
-    const divisor = BigInt('1000000000000000000');
-    const whole = num / divisor;
-    const remainder = num % divisor;
-    const decimal = (remainder * BigInt(10000)) / divisor;
-    const decimalStr = decimal.toString().padStart(4, '0').slice(0, 2);
-    return `${whole}.${decimalStr} DEMOS`;
+    const value = String(rawBalance ?? '').trim();
+    if (!value) return "0 DEMOS";
+
+    // Backend returns a large integer string; render it directly with grouping.
+    if (/^-?\d+$/.test(value)) {
+      try {
+        const integerValue = BigInt(value);
+        return `${new Intl.NumberFormat('en-US').format(integerValue)} DEMOS`;
+      } catch {
+        return `${value} DEMOS`;
+      }
+    }
+
+    // Fallback for already-decimal values.
+    const decimal = Number(value);
+    if (Number.isFinite(decimal)) {
+      return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 6 }).format(decimal)} DEMOS`;
+    }
+
+    return `${value} DEMOS`;
+  }
+
+  private parseIntegerBalance(rawBalance: string): bigint | null {
+    const value = String(rawBalance ?? '').trim();
+    if (!/^-?\d+$/.test(value)) return null;
+    try {
+      return BigInt(value);
+    } catch {
+      return null;
+    }
   }
 
   private isValidAddress(address: string): boolean {

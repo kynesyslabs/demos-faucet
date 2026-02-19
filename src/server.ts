@@ -8,6 +8,13 @@ const app = new Hono();
 // Serve static assets
 app.use('/dist/*', serveStatic({ root: './' }));
 app.use('/styles/*', serveStatic({ root: './src' }));
+app.get('/favicon.ico', (c) => {
+  const logoSvg = readFileSync(join(process.cwd(), 'src/styles/demos-logo.svg'), 'utf-8');
+  return c.body(logoSvg, 200, {
+    'Content-Type': 'image/svg+xml',
+    'Cache-Control': 'public, max-age=86400'
+  });
+});
 
 // Serve the main HTML file with injected environment variables
 app.get('/', (c) => {
