@@ -193,10 +193,10 @@ async function transferTokens(
     console.log("Confirmation: " + JSON.stringify(confirmation, null, 2));
     
     if (!confirmation.response.data.valid) {
-      console.log("Transaction failed during confirmation");
+      console.log("Transaction failed during confirmation:", JSON.stringify(confirmation, null, 2));
       return {
         success: false,
-        message: "Transaction failed: " + JSON.stringify(confirmation, null, 2),
+        message: "Transaction failed. Please try again later.",
         txHash: "",
         confirmationBlock: -1,
       };
@@ -220,7 +220,7 @@ async function transferTokens(
     console.error("Transaction failed:", error);
     return {
       success: false,
-      message: `Transaction failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      message: "Transaction failed. Please try again later.",
       txHash: "",
       confirmationBlock: -1,
     };

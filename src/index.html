@@ -7,11 +7,13 @@
     <meta name="theme-color" content="#02060f" />
     <title>Demos Network Faucet</title>
     <link rel="preconnect" href="/styles/fonts/" crossorigin />
+    <link rel="preload" href="/styles/fonts/Inter/Inter-VariableFont_slnt,wght.ttf" as="font" type="font/ttf" crossorigin />
+    <link rel="preload" href="/styles/fonts/NeueMachina-Regular.otf" as="font" type="font/otf" crossorigin />
     <link rel="stylesheet" href="/styles/main.css" />
   </head>
   <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
-    <script type="module" src="/dist/main.js"></script>
+    <script type="module" src="/dist/main.js" defer></script>
     <div id="app" role="application">
       <div class="container">
         <div class="faucet-card">
@@ -21,7 +23,7 @@
               <img src="/styles/demos-logo.svg" alt="Demos Network" class="demos-logo" />
               <h1>Faucet</h1>
             </div>
-            <div class="network-badge">Testnet</div>
+            <div class="network-badge"><span class="status-dot"></span>Testnet</div>
           </div>
 
           <section class="faucet-status" aria-label="Faucet status" aria-live="polite">
@@ -42,7 +44,7 @@
           <main id="main-content" class="faucet-content">
             <form id="faucet-form" class="faucet-form" aria-label="Request tokens">
               <div class="input-group">
-                <label for="wallet-address" class="visually-hidden">Wallet address</label>
+                <label for="wallet-address" class="input-label">Wallet Address</label>
                 <input
                   type="text"
                   id="wallet-address"
