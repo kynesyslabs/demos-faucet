@@ -227,21 +227,19 @@ class App {
           const shortAddress = fullAddress.substring(0, 5) + "..." + fullAddress.substring(fullAddress.length - 5);
           faucetAddress.innerHTML = `<span class="clickable-address" title="Click to copy full address" data-address="${fullAddress}">${shortAddress}</span>`;
           
-          // Add click-to-copy functionality
+          // Add click-to-copy functionality with fallback
           const addressSpan = faucetAddress.querySelector('.clickable-address');
           if (addressSpan) {
-            addressSpan.addEventListener('click', () => {
-              navigator.clipboard.writeText(fullAddress).then(() => {
+            addressSpan.addEventListener('click', async () => {
+              const success = await this.copyToClipboard(fullAddress);
+              if (success) {
                 console.log('Address copied to clipboard:', fullAddress);
-                // Show temporary feedback
                 const originalText = addressSpan.textContent;
                 addressSpan.textContent = 'Copied!';
                 setTimeout(() => {
                   addressSpan.textContent = originalText;
                 }, 1000);
-              }).catch(err => {
-                console.error('Failed to copy address:', err);
-              });
+              }
             });
           }
         }
@@ -312,6 +310,25 @@ class App {
 
   private isValidAddress(address: string): boolean {
     return /^0x[0-9a-fA-F]{64}$/.test(address);
+  }
+
+  private async copyToClipboard(text: string): Promise<boolean> {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fallback for older browsers/mobile
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      textarea.style.pointerEvents = 'none';
+      document.body.appendChild(textarea);
+      textarea.select();
+      const success = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      return success;
+    }
   }
 
   private showSuccess(message: string): void {

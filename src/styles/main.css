@@ -278,6 +278,10 @@ body::after {
   transform-style: preserve-3d;
 }
 
+.logo-container:hover .demos-logo {
+  animation-play-state: paused;
+}
+
 .faucet-header h1 {
   font-family: 'Neue Machina', 'Inter', system-ui, sans-serif;
   font-size: clamp(1.75rem, 3vw, 2.5rem);
@@ -288,6 +292,9 @@ body::after {
 }
 
 .network-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   padding: 0.35rem 1rem;
   border-radius: 999px;
   text-transform: uppercase;
@@ -297,6 +304,14 @@ body::after {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.12);
   backdrop-filter: blur(12px);
+}
+
+.network-badge .status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warning-yellow);
+  flex-shrink: 0;
 }
 
 .faucet-status,
@@ -395,6 +410,7 @@ body::after {
 }
 
 .input-group {
+  position: relative;
   background: var(--input-bg);
   border: 1px solid var(--input-border);
   border-radius: var(--radius-sm);
@@ -402,6 +418,19 @@ body::after {
   display: flex;
   align-items: center;
   transition: border-color var(--transition-base), box-shadow var(--transition-base), background var(--transition-base);
+}
+
+.input-group .input-label {
+  position: absolute;
+  top: -0.5rem;
+  left: 0.75rem;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  background: var(--glass-surface);
+  padding: 0 0.35rem;
+  border-radius: 2px;
 }
 
 .input-group:focus-within {
@@ -887,6 +916,21 @@ body::after {
   .demos-logo,
   .floating-logo {
     animation: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .container {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+  
+  .faucet-card {
+    padding: 2rem;
+  }
+  
+  .faucet-header h1 {
+    font-size: 1.75rem;
   }
 }
 
