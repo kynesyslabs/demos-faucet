@@ -1,6 +1,8 @@
 class App {
   public remoteBackendUrl: string;
   private tiltEnabled: boolean = true;
+  private statusInterval: ReturnType<typeof setInterval> | null = null;
+  private boundEventListeners: { element: EventTarget; event: string; handler: EventListener }[] = [];
 
   constructor() {
     this.remoteBackendUrl = (window as any).__BACKEND_URL__ ?? 
@@ -9,6 +11,22 @@ class App {
     this.testBackendUrl();
     this.init();
     this.initTiltEffect();
+  }
+
+  public destroy(): void {
+    if (this.statusInterval) {
+      clearInterval(this.statusInterval);
+      this.statusInterval = null;
+    }
+    this.boundEventListeners.forEach(({ element, event, handler }) => {
+      element.removeEventListener(event, handler);
+    });
+    this.boundEventListeners = [];
+  }
+
+  private addTrackedListener(element: EventTarget, event: string, handler: EventListener): void {
+    element.addEventListener(event, handler);
+    this.boundEventListeners.push({ element, event, handler });
   }
 
   private initTiltEffect(): void {
@@ -53,8 +71,8 @@ class App {
       card.style.setProperty('--tilt-y', '0deg');
     };
 
-    card.addEventListener('mousemove', handleMove);
-    card.addEventListener('mouseleave', handleLeave);
+    this.addTrackedListener(card, 'mousemove', handleMove as EventListener);
+    this.addTrackedListener(card, 'mouseleave', handleLeave);
   }
 
   private async testBackendUrl(): Promise<void> {
@@ -80,7 +98,7 @@ class App {
   private async init(): Promise<void> {
     await this.updateFaucetStatus();
 
-    setInterval(() => {
+    this.statusInterval = setInterval(() => {
       this.updateFaucetStatus();
     }, 30000);
 
