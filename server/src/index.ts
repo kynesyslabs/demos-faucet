@@ -58,7 +58,7 @@ const generalRateLimit = createRateLimit(
 
 const faucetRateLimit = createRateLimit(
   60 * 1000, // 1 minute
-  3, // max 3 requests per minute
+  30, // max 30 requests per minute (per IP, shared behind nginx)
   "Too many faucet requests"
 );
 
