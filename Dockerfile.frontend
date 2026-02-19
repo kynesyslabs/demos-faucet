@@ -30,8 +30,8 @@ COPY package.json ./
 RUN bun install --production
 
 # Create non-root user
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 faucet
+RUN groupadd --system --gid 1001 nodejs
+RUN useradd --system --uid 1001 --gid 1001 faucet
 
 # Copy built assets and server with proper ownership
 COPY --from=builder --chown=faucet:nodejs /app/dist ./dist
