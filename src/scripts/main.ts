@@ -412,7 +412,7 @@ class App {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
-        // SECURITY: Amount is determined by server based on identity check
+        // SECURITY: Amount is determined by server (1000 DEM/day, elevated for whitelisted)
         const requestBody = { address };
         console.log("Sending request to backend:", {
           url: `${this.remoteBackendUrl}/api/request`,

@@ -47,7 +47,7 @@ export const createSlowDown = (windowMs: number, delayAfter: number, delayMs: nu
 };
 
 // Input validation middleware
-// SECURITY: Server controls amount based on identity, client only provides address
+// SECURITY: Server controls amount (1000 DEM/day, elevated for whitelisted), client only provides address
 export const validateFaucetRequest = [
   body('address')
     .isString()
@@ -55,7 +55,7 @@ export const validateFaucetRequest = [
     .isLength({ min: 66, max: 66 })
     .matches(/^0x[0-9a-fA-F]{64}$/)
     .withMessage('Invalid address format - must be 0x followed by 64 hex characters'),
-  // REMOVED: amount validation - server determines amount based on identity
+  // Amount is server-determined (not accepted from client)
 
   (req: Request, res: Response, next: NextFunction) => {
     const errors = validationResult(req);

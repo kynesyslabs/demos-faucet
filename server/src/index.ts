@@ -97,6 +97,8 @@ export class FaucetServer {
   public timeInterval: number;
   public numberPerInterval: number;
   public maxAmount: number;
+  public whitelistedAddresses: string[];
+  public whitelistMaxAmount: number;
   public port: number;
   private safeguards: Safeguards;
   private cachedBalance: {
@@ -112,6 +114,19 @@ export class FaucetServer {
     this.timeInterval = parseInt(process.env.TIME_INTERVAL || "86400");
     this.numberPerInterval = parseInt(process.env.NUMBER_PER_INTERVAL || "1");
     this.maxAmount = parseInt(process.env.MAX_AMOUNT || "1000");
+    this.whitelistedAddresses = (process.env.WHITELIST_ADDRESSES || "").split(",").map(a => a.trim()).filter(a => a.length > 0);
+    this.whitelistMaxAmount = parseInt(process.env.WHITELIST_MAX_AMOUNT || "10000");
+
+    // Validate whitelist addresses at startup
+    const addressPattern = /^0x[0-9a-fA-F]{64}$/;
+    for (const addr of this.whitelistedAddresses) {
+      if (!addressPattern.test(addr)) {
+        logger.warn(`Invalid whitelist address format (will never match): ${addr}`);
+      }
+    }
+    if (this.whitelistedAddresses.length > 0) {
+      logger.info(`Loaded ${this.whitelistedAddresses.length} whitelisted address(es) with elevated limit of ${this.whitelistMaxAmount} DEM`);
+    }
     this.port = parseInt(process.env.PORT || "3000");
     this.safeguards = new Safeguards(this);
   }
@@ -412,7 +427,7 @@ function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
   });
 
   // Request tokens endpoint (moved to setupRoutes)
-  // SECURITY: Server controls amount based on identity, not client
+  // SECURITY: Server controls amount (flat 1000 DEM per account per day), not client
   app.post("/api/request", faucetRateLimit, validateFaucetRequest, async (req: Request, res: Response) => {
     try {
       const { address } = req.body; // Amount is NOT accepted from client
@@ -432,7 +447,7 @@ function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
       // Phase 1: Check if request is allowed (don't record yet)
       // SECURITY: Two-phase commit ensures quota only consumed on successful transfer
       const safeguards = faucetServer.getSafeguards();
-      const checkResult = await safeguards.checkIfAllowed(address, ip, demos);
+      const checkResult = await safeguards.checkIfAllowed(address, ip);
 
       if (!checkResult.allowed) {
         logger.warn("Safeguard check failed", { address, ip, reason: checkResult.message });
@@ -442,7 +457,7 @@ function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
         });
       }
 
-      // Server determines amount (50 DEM base, 100 DEM with identity)
+      // Server determines amount (1000 DEM per account per day)
       const amount = checkResult.amount;
 
       // Defensive validation

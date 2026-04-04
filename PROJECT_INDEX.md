@@ -1,38 +1,48 @@
 # Project Index: demos-faucet
 
-Generated: 2026-02-19 (Updated)
+Generated: 2026-04-04 (Updated)
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 demos-faucet/
 ├── src/                    # Frontend source
 │   ├── server.ts          # Hono server (serves HTML, injects env)
 │   ├── index.html         # Main HTML page (accessible, ARIA labels)
-│   ├── styles/main.css    # Styles (glassmorphism, animations)
-│   └── scripts/main.ts    # Frontend App class (API calls, cleanup)
+│   ├── styles/
+│   │   ├── main.css       # Styles (glassmorphism, animations)
+│   │   ├── demos-logo.svg # Logo asset
+│   │   └── fonts/         # Neue Machina + Inter Variable
+│   └── scripts/
+│       ├── main.ts        # Frontend App class (API calls, UI effects)
+│       └── dist/main.js   # Pre-built browser bundle
 ├── server/                 # Backend source
 │   ├── src/
 │   │   ├── index.ts       # Express API + FaucetServer class
 │   │   ├── safeguards.ts  # Rate limiting, quotas, identity checks
-│   │   └── security.ts    # DDoS, validation, logging middleware
+│   │   ├── security.ts    # DDoS, validation, logging middleware
+│   │   └── test.ts        # Backend tests
 │   ├── faucet.db          # SQLite database (runtime)
+│   ├── Dockerfile         # Backend container
 │   └── package.json
-├── dist/                   # Built frontend JS
+├── dist/                   # Built frontend JS (webpack output)
 ├── ANALYSIS_REPORT.md     # Security/UX/Code quality report
-├── CLAUDE.md              # Design context and guidelines
-├── docker-compose.yml     # Multi-container setup
-└── Dockerfile.frontend    # Frontend container
+├── docker-compose.yml     # Multi-container setup (frontend + backend)
+├── Dockerfile.frontend    # Frontend container
+├── Dockerfile.client      # Alternative client container
+├── run.sh / stop.sh / restart.sh  # Docker convenience scripts
+├── webpack.config.js      # Frontend build config
+└── package.json           # Frontend dependencies + dev scripts
 ```
 
-## 🚀 Entry Points
+## Entry Points
 
 | Service | Path | Port | Description |
 |---------|------|------|-------------|
 | Frontend | `src/server.ts` | 4442 | Hono server, serves UI, injects backend URL |
 | Backend | `server/src/index.ts` | 3010 | Express API, token transfers, safeguards |
 
-## 📦 Core Modules
+## Core Modules
 
 ### Frontend
 
@@ -49,7 +59,7 @@ demos-faucet/
 | Safeguards | `server/src/safeguards.ts` | `Safeguards` | Rate limiting, identity-based amounts, SQLite |
 | Security | `server/src/security.ts` | `logger`, `createRateLimit`, `DDoSProtection` | Express security middleware |
 
-## 🔌 API Endpoints
+## API Endpoints
 
 ### Backend (port 3010)
 
@@ -72,7 +82,7 @@ demos-faucet/
 | GET | `/dist/main.js` | Bundled frontend JS |
 | GET | `/styles/*` | CSS files |
 
-## 🔧 Configuration
+## Configuration
 
 ### Environment Variables
 
@@ -84,9 +94,10 @@ demos-faucet/
 | `TIME_INTERVAL` | `86400` | Rate limit window (24h) |
 | `NUMBER_PER_INTERVAL` | `1` | Max requests per window |
 | `MAX_AMOUNT` | `50` | Max DEMOS per window (100 with identity) |
-| `PORT` | `3010` | Backend port |
+| `PORT` | `3000` | Backend port |
+| `REMOTE_BACKEND_URL` | `https://faucetbackend.demos.sh` | Frontend: backend URL to inject |
 
-## 🔒 Security Features
+## Security Features
 
 | Layer | Limit | Scope |
 |-------|-------|-------|
@@ -105,7 +116,7 @@ demos-faucet/
 - Generic error messages to clients
 - HSTS, CSP headers (Helmet)
 
-## 🎨 Design System
+## Design System
 
 ### Typography
 - **Display**: Neue Machina (300, 400, 800)
@@ -121,11 +132,7 @@ demos-faucet/
 --error-red: #ff4d6d;
 ```
 
-### Key Files
-- `CLAUDE.md` - Design context, brand personality, component patterns
-- `../minting_app/` - Reference design implementation
-
-## 📝 Quick Start
+## Quick Start
 
 ```bash
 # Install dependencies
@@ -145,7 +152,20 @@ bun run build
 docker-compose up --build
 ```
 
-## 📊 Data Flow
+## Tech Stack
+
+| Component | Technology | Version |
+|-----------|-----------|---------|
+| Frontend server | Hono | ^4.0.0 |
+| Backend server | Express | ^4.19.2 |
+| Runtime | Bun | latest |
+| Blockchain SDK | @kynesyslabs/demosdk | ^2.4.26 (frontend), ^2.2.70 (server) |
+| Database | SQLite (bun:sqlite) | built-in |
+| Bundler | Webpack / Bun build | - |
+| Logging | Winston | ^3.11.0 |
+| Security | Helmet, express-rate-limit, express-slow-down | - |
+
+## Data Flow
 
 ```
 User → Frontend (:4442) → Backend API (:3010) → Demos Network
@@ -154,9 +174,16 @@ User → Frontend (:4442) → Backend API (:3010) → Demos Network
                     Safeguards (identity check)
 ```
 
-## 🐛 Known Issues
+## Key Architecture Decisions
+
+- **Two-phase commit for token requests**: check quota -> transfer tokens -> record request. Quota only consumed on successful transfer.
+- **Server-controlled amounts**: Client only sends address; server determines amount (50 DEM base, 100 DEM with verified identity).
+- **Backend URL injection**: Frontend server reads `REMOTE_BACKEND_URL` at runtime and injects it as `window.__BACKEND_URL__` via script tag.
+- **Balance caching**: Periodic background updates (30s interval) with retry+exponential backoff; also forced updates before/after transfers.
+- **Identity bonus**: `Safeguards.hasConnectedIdentity()` checks address identities via Demos SDK; verified addresses get 2x tokens.
+
+## Known Issues
 
 See `ANALYSIS_REPORT.md` for remaining items:
-- No blockchain operation timeout (needs Promise.race)
-- No status fetch timeout (needs AbortController)
-- Mnemonic getter should be removed
+- Mnemonic getter (`getMnemonic()`) is exposed on FaucetServer class
+- DemoSDK version mismatch between frontend (^2.4.26) and server (^2.2.70)

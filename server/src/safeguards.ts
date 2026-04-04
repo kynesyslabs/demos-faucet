@@ -1,8 +1,6 @@
 import { Database } from "bun:sqlite";
 import { FaucetServer } from "./index";
 
-const IDENTITY_BONUS_AMOUNT = 100;
-
 interface RequestRecord {
   address: string;
   amount: number;
@@ -39,61 +37,20 @@ export class Safeguards {
     `);
   }
 
-  private hasConnectedIdentity(addressInfo: any): boolean {
-    const identities = addressInfo?.identities;
-    if (!identities) {
-      return false;
-    }
-
-    const contexts = identities instanceof Map
-      ? Array.from(identities.values())
-      : Object.values(identities);
-
-    for (const context of contexts) {
-      if (!context) {
-        continue;
-      }
-
-      const providerIdentities = context instanceof Map
-        ? Array.from(context.values())
-        : Object.values(context);
-
-      for (const ids of providerIdentities) {
-        if (Array.isArray(ids) && ids.length > 0) {
-          return true;
-        }
-      }
-    }
-
-    return false;
+  private isWhitelisted(address: string): boolean {
+    const normalizedAddress = address.toLowerCase();
+    return this.faucetServer.whitelistedAddresses.some(
+      (a) => a.toLowerCase() === normalizedAddress
+    );
   }
 
-  private async resolveMaxAmount(address: string, demos?: any): Promise<number> {
-    let amount = this.faucetServer.maxAmount;
-
-    if (!demos) {
-      return amount;
-    }
-
-    try {
-      const addressInfo = await demos.getAddressInfo(address);
-      if (this.hasConnectedIdentity(addressInfo)) {
-        amount = Math.max(amount, IDENTITY_BONUS_AMOUNT);
-        console.log(`Address ${address} has connected identity, increased limit to ${amount} DEM`);
-      } else {
-        console.log(`Address ${address} has no connected identity, using base limit of ${amount} DEM`);
-      }
-    } catch (error) {
-      console.error(`Error checking identity for ${address}:`, error);
-    }
-
-    return amount;
+  private resolveMaxAmount(): number {
+    return this.faucetServer.maxAmount;
   }
 
   public async checkAndRecordRequest(
     address: string,
-    ip: string,
-    demos?: any
+    ip: string
   ): Promise<{
     allowed: boolean;
     message: string;
@@ -102,7 +59,13 @@ export class Safeguards {
     const now = Math.floor(Date.now() / 1000);
     const timeInterval = this.faucetServer.timeInterval;
     const numberPerInterval = this.faucetServer.numberPerInterval;
-    const maxAmount = await this.resolveMaxAmount(address, demos);
+    let maxAmount = this.resolveMaxAmount();
+
+    // Override limit for whitelisted addresses
+    if (this.isWhitelisted(address)) {
+      maxAmount = this.faucetServer.whitelistMaxAmount;
+      console.log(`[Safeguards] Whitelisted address ${address}, using elevated limit of ${maxAmount} DEM`);
+    }
 
     // Server determines the amount to send (not client)
     let amount = maxAmount;
@@ -194,8 +157,7 @@ export class Safeguards {
    */
   public async checkIfAllowed(
     address: string,
-    ip: string,
-    demos?: any
+    ip: string
   ): Promise<{
     allowed: boolean;
     message: string;
@@ -204,7 +166,13 @@ export class Safeguards {
     const now = Math.floor(Date.now() / 1000);
     const timeInterval = this.faucetServer.timeInterval;
     const numberPerInterval = this.faucetServer.numberPerInterval;
-    const maxAmount = await this.resolveMaxAmount(address, demos);
+    let maxAmount = this.resolveMaxAmount();
+
+    // Override limit for whitelisted addresses
+    if (this.isWhitelisted(address)) {
+      maxAmount = this.faucetServer.whitelistMaxAmount;
+      console.log(`[Safeguards] Whitelisted address ${address}, using elevated limit of ${maxAmount} DEM`);
+    }
 
     // Server determines the amount to send (not client)
     let amount = maxAmount;
@@ -315,12 +283,15 @@ export class Safeguards {
     const now = Math.floor(Date.now() / 1000);
     const timeInterval = this.faucetServer.timeInterval;
     const numberPerInterval = this.faucetServer.numberPerInterval;
-    const maxAmount = this.faucetServer.maxAmount;
+    let maxAmount = this.faucetServer.maxAmount;
+    if (this.isWhitelisted(address)) {
+      maxAmount = this.faucetServer.whitelistMaxAmount;
+    }
 
     const stats = this.db
       .query(
         `
-      SELECT 
+      SELECT
         COUNT(*) as total_requests,
         SUM(amount) as total_amount,
         MAX(timestamp) as last_request
