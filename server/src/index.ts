@@ -1,4 +1,5 @@
 import { websdk, denomination } from "@kynesyslabs/demosdk";
+import { BroadcastTimeoutError, BroadcastFailedError } from "@kynesyslabs/demosdk/websdk";
 import dotenv from "dotenv";
 import { Safeguards } from "./safeguards";
 import express from "express";
@@ -195,52 +196,104 @@ async function transferTokens(
   message: string;
   txHash: string;
   confirmationBlock: number;
+  // Real failure reason for the operator. Never shown to the user; logged
+  // and returned so a remote failure can be debugged.
+  errorDetail?: string;
 }> {
-  try {
-    console.log("Transferring tokens to: " + to);
+  // SDK v4: amount must be OS (smallest unit, 1 DEM = 10^9 OS) as a bigint.
+  // `amount` is a human-readable DEM number from the safeguards layer.
+  // demToOs throws on fractional/negative input, so compute it up-front
+  // (outside the try) only after a defensive integer check by the caller.
+  const amountOs = denomination.demToOs(amount);
 
-    // Create transaction
-    // SDK v4: amount must be OS (smallest unit, 1 DEM = 10^9 OS) as a bigint.
-    // `amount` is a human-readable DEM number from the safeguards layer.
-    const amountOs = denomination.demToOs(amount);
+  try {
+    logger.info("Transferring tokens", { to, amountOs: amountOs.toString() });
+
+    // Create + sign the transaction.
     const transaction = await demos.transfer(to, amountOs);
-    console.log("Transaction created, confirming...");
-    
-    // Confirm transaction
+
+    // Confirm. NOTE (v4): confirm() THROWS on an invalid tx
+    // (`[Confirm] Transaction is not valid: <message>`). It does not return a
+    // {valid:false} object on that path, so there is no dead "if (!valid)"
+    // branch here — an invalid tx lands in the catch below.
     const confirmation = await demos.confirm(transaction);
-    console.log("Confirmation: " + JSON.stringify(confirmation, null, 2));
-    
-    if (!confirmation.response.data.valid) {
-      console.log("Transaction failed during confirmation:", JSON.stringify(confirmation, null, 2));
+
+    // Broadcast and wait for a terminal on-chain state. A bounded timeout
+    // keeps the handler well under the frontend's 30s abort. fail-fast lets
+    // us distinguish "never reached the node" (hard failure) from "accepted
+    // but not yet terminal" (pending) — see the catch.
+    logger.info("Broadcasting transaction (waiting for inclusion)", { to });
+    const outcome = await demos.tx.broadcastAndWait(confirmation, demos, {
+      timeoutMs: 12000,
+      pollIntervalMs: 500,
+      failFastOnBroadcastError: true,
+    });
+
+    const txHash = confirmation.response.data.transaction.hash;
+
+    if (outcome.status.state === "failed") {
+      logger.warn("Transaction failed on chain", { to, txHash });
       return {
         success: false,
         message: "Transaction failed. Please try again later.",
         txHash: "",
         confirmationBlock: -1,
+        errorDetail: `Transaction ${txHash} reached terminal state 'failed' on chain`,
       };
     }
-    
-    const txHash = confirmation.response.data.transaction.hash;
-    const confirmationBlock = confirmation.response.data.reference_block;
-    
-    // Broadcast transaction
-    console.log("Broadcasting transaction...");
-    const result = await demos.broadcast(confirmation);
-    console.log("Broadcast result: " + JSON.stringify(result, null, 2));
-    
+
+    logger.info("Transaction included", {
+      to,
+      txHash,
+      blockNumber: outcome.status.blockNumber,
+    });
     return {
       success: true,
       message: `Transaction successful: ${txHash}`,
-      txHash: txHash,
-      confirmationBlock: confirmationBlock,
+      txHash,
+      confirmationBlock: outcome.status.blockNumber ?? -1,
     };
   } catch (error) {
-    console.error("Transaction failed:", error);
+    // Broadcast accepted by the transport but no terminal state observed in
+    // time. The tx very likely lands; treat as PENDING (success) so the user
+    // gets the hash and quota is consumed — recording quota here is what
+    // prevents a retry-driven double-spend. The frontend renders
+    // confirmationBlock:-1 as "Pending...".
+    if (error instanceof BroadcastTimeoutError) {
+      logger.warn("Broadcast timed out (treating as pending)", {
+        to,
+        txHash: error.txHash,
+        lastSeenState: error.lastSeenState,
+        elapsedMs: error.elapsedMs,
+      });
+      return {
+        success: true,
+        message: `Transaction broadcast (pending confirmation): ${error.txHash}`,
+        txHash: error.txHash,
+        confirmationBlock: -1,
+      };
+    }
+
+    // Anything else — BroadcastFailedError (never reached the node),
+    // a thrown invalid confirm, demToOs/validation, transport — is a hard
+    // failure. Quota is NOT consumed; surface the real reason to the logs.
+    const detail =
+      error instanceof BroadcastFailedError
+        ? `Broadcast never reached the node: ${error.message}`
+        : error instanceof Error
+          ? error.message
+          : String(error);
+    logger.error("transferTokens failed", {
+      to,
+      amountOs: amountOs.toString(),
+      errorDetail: detail,
+    });
     return {
       success: false,
       message: "Transaction failed. Please try again later.",
       txHash: "",
       confirmationBlock: -1,
+      errorDetail: detail,
     };
   }
 }
@@ -444,9 +497,6 @@ function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
         });
       }
 
-      // Force balance update before processing request
-      await forceBalanceUpdate(faucetServer, demos);
-
       // Phase 1: Check if request is allowed (don't record yet)
       // SECURITY: Two-phase commit ensures quota only consumed on successful transfer
       const safeguards = faucetServer.getSafeguards();
@@ -494,8 +544,15 @@ function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
           },
         });
       } else {
-        // Transfer failed - quota NOT consumed, user can retry
-        logger.warn("Token transfer failed", { address, amount, ip });
+        // Transfer failed - quota NOT consumed, user can retry.
+        // errorDetail carries the real reason (node message, transport error,
+        // etc.) so a remote failure is debuggable from the logs.
+        logger.warn("Token transfer failed", {
+          address,
+          amount,
+          ip,
+          errorDetail: result.errorDetail,
+        });
         return res.status(500).json({
           status: 500,
           body: "Transaction failed. Please try again later.",
