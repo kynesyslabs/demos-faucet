@@ -1,4 +1,4 @@
-import { websdk } from "@kynesyslabs/demosdk";
+import { websdk, denomination } from "@kynesyslabs/demosdk";
 import dotenv from "dotenv";
 import { Safeguards } from "./safeguards";
 import express from "express";
@@ -198,9 +198,12 @@ async function transferTokens(
 }> {
   try {
     console.log("Transferring tokens to: " + to);
-    
+
     // Create transaction
-    const transaction = await demos.transfer(to, amount);
+    // SDK v4: amount must be OS (smallest unit, 1 DEM = 10^9 OS) as a bigint.
+    // `amount` is a human-readable DEM number from the safeguards layer.
+    const amountOs = denomination.demToOs(amount);
+    const transaction = await demos.transfer(to, amountOs);
     console.log("Transaction created, confirming...");
     
     // Confirm transaction

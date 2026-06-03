@@ -138,3 +138,7 @@ faucet.db
 PR_REVIEW_FINAL.md
 server/dist
 PR_REVIEW_COMPREHENSIVE.md
+
+# Local agent tooling state
+.bank
+.mycelium/

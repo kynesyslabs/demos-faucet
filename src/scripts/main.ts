@@ -298,21 +298,26 @@ class App {
     return link;
   }
 
+  // SDK v4: 1 DEM = 10^9 OS. The backend returns balance as a raw OS
+  // integer string; the frontend converts to human-readable DEM for display.
+  private static readonly OS_PER_DEM = 1_000_000_000n;
+
   private formatBalance(rawBalance: string): string {
     const value = String(rawBalance ?? '').trim();
     if (!value) return "0 DEMOS";
 
-    // Backend returns a large integer string; render it directly with grouping.
+    // Backend returns balance in OS (smallest unit) as an integer string.
+    // Convert to DEM (divide by 10^9) before display.
     if (/^-?\d+$/.test(value)) {
       try {
-        const integerValue = BigInt(value);
-        return `${new Intl.NumberFormat('en-US').format(integerValue)} DEMOS`;
+        const dem = this.osToDemNumber(BigInt(value));
+        return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 4 }).format(dem)} DEMOS`;
       } catch {
         return `${value} DEMOS`;
       }
     }
 
-    // Fallback for already-decimal values.
+    // Fallback for already-decimal values (e.g. a pre-fork node returning DEM).
     const decimal = Number(value);
     if (Number.isFinite(decimal)) {
       return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 6 }).format(decimal)} DEMOS`;
@@ -321,11 +326,21 @@ class App {
     return `${value} DEMOS`;
   }
 
+  // Convert an OS bigint to a DEM number for display/threshold checks.
+  // Acceptable precision loss: faucet balances are far below 2^53 DEM.
+  private osToDemNumber(os: bigint): number {
+    const whole = os / App.OS_PER_DEM;
+    const frac = os % App.OS_PER_DEM;
+    return Number(whole) + Number(frac) / Number(App.OS_PER_DEM);
+  }
+
+  // Parse the raw OS balance string and return the DEM value as a bigint
+  // (whole DEM, truncated) for the low-balance threshold check.
   private parseIntegerBalance(rawBalance: string): bigint | null {
     const value = String(rawBalance ?? '').trim();
     if (!/^-?\d+$/.test(value)) return null;
     try {
-      return BigInt(value);
+      return BigInt(value) / App.OS_PER_DEM;
     } catch {
       return null;
     }
