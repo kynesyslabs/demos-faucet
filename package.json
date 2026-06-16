@@ -11,7 +11,7 @@
     "serve": "bun run src/server.ts"
   },
   "dependencies": {
-    "@kynesyslabs/demosdk": "^2.4.26",
+    "@kynesyslabs/demosdk": "^4.0.9",
     "axios": "^1.6.0",
     "crypto": "^1.0.1",
     "dotenv": "^16.4.7",
