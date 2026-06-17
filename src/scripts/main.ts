@@ -257,7 +257,18 @@ class App {
             faucetBalance.className = "status-value";
           }
         }
-        
+
+        // Reflect the server's per-request limit in the "You will receive" line.
+        // Server is the source of truth (env-driven, hot-swappable); the HTML
+        // value is just a placeholder until this runs.
+        if (data.body && data.body.maxAmount != null) {
+          const amountEl = document.querySelector(".amount-display .amount");
+          if (amountEl) {
+            const fmt = new Intl.NumberFormat("en-US").format(Number(data.body.maxAmount));
+            amountEl.textContent = `${fmt} DEMOS`;
+          }
+        }
+
       } else {
         const errorData = await response.text();
         console.error("Failed to fetch faucet status:", response.status, errorData);

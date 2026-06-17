@@ -121,7 +121,7 @@ export class FaucetServer {
   // without a restart (see watchEnv). ponytail: getters over a reload framework.
   public get timeInterval(): number { return parseInt(process.env.TIME_INTERVAL || "86400"); }
   public get numberPerInterval(): number { return parseInt(process.env.NUMBER_PER_INTERVAL || "1"); }
-  public get maxAmount(): number { return parseInt(process.env.MAX_AMOUNT || "1000"); }
+  public get maxAmount(): number { return parseInt(process.env.MAX_AMOUNT || "2400"); }
   public get whitelistMaxAmount(): number { return parseInt(process.env.WHITELIST_MAX_AMOUNT || "10000"); }
   public get whitelistedAddresses(): string[] {
     return (process.env.WHITELIST_ADDRESSES || "").split(",").map(a => a.trim()).filter(a => a.length > 0);
@@ -465,6 +465,7 @@ function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
             body: {
               balance: rawBalance.toString(),
               publicKey: publicKey,
+              maxAmount: faucetServer.maxAmount,
               cached: false,
               message: "Live balance (cache disabled)"
             },
