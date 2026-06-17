@@ -38,11 +38,14 @@ export const createRateLimit = (windowMs: number, max: number, message: string) 
 
 // Slow down middleware for progressive delays
 export const createSlowDown = (windowMs: number, delayAfter: number, delayMs: number) => {
+  // express-slow-down v2: delayMs must be a function. Reproduce the old static
+  // behavior — Nth request past delayAfter waits N*delayMs (capped by maxDelayMs).
   return slowDown({
     windowMs,
     delayAfter,
-    delayMs,
-    maxDelayMs: delayMs * 10
+    delayMs: (used, req) => (used - req.slowDown.limit) * delayMs,
+    maxDelayMs: delayMs * 10,
+    validate: { delayMs: false }
   });
 };
 
