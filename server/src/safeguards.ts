@@ -14,7 +14,9 @@ export class Safeguards {
 
   constructor(faucetServer: FaucetServer) {
     this.faucetServer = faucetServer;
-    this.db = new Database("faucet.db");
+    // Default under /app/data which compose mounts as a volume, so quota
+    // survives container recreates. Override with DB_PATH.
+    this.db = new Database(process.env.DB_PATH || "/app/data/faucet.db");
     this.initDatabase();
   }
 

@@ -29,6 +29,9 @@ services:
     volumes:
       - ./server/data:/app/data
       - ./server/logs:/app/logs
+      # Mount .env into the container so the in-app watcher hot-reloads limit
+      # edits without a restart. env_file alone only injects at boot.
+      - ./server/.env:/app/.env:ro
     env_file:
       - server/.env
     environment:

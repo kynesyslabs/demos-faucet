@@ -21,6 +21,26 @@ import {
 
 dotenv.config();
 
+// Hot-reload .env on change so limit edits apply without a restart.
+// override:true makes dotenv replace existing process.env values.
+// ponytail: fs.watch + debounce, not a config daemon. Editors fire multiple
+// events per save, hence the timer.
+import { watch } from "fs";
+{
+  let t: ReturnType<typeof setTimeout> | undefined;
+  try {
+    watch(".env", () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        dotenv.config({ override: true });
+        logger.info("[env] .env reloaded — limits updated live");
+      }, 200);
+    });
+  } catch {
+    // .env not present as a watchable file (e.g. env injected by compose only)
+  }
+}
+
 const app = express();
 const port = process.env.PORT || 3000;
 const ddosProtection = new DDoSProtection();
@@ -95,12 +115,17 @@ export class FaucetServer {
   private mnemonic: string;
   private publicKey: string;
   public rpcUrl: string;
-  public timeInterval: number;
-  public numberPerInterval: number;
-  public maxAmount: number;
-  public whitelistedAddresses: string[];
-  public whitelistMaxAmount: number;
   public port: number;
+
+  // Limits read live from env on every access so editing .env hot-swaps them
+  // without a restart (see watchEnv). ponytail: getters over a reload framework.
+  public get timeInterval(): number { return parseInt(process.env.TIME_INTERVAL || "86400"); }
+  public get numberPerInterval(): number { return parseInt(process.env.NUMBER_PER_INTERVAL || "1"); }
+  public get maxAmount(): number { return parseInt(process.env.MAX_AMOUNT || "1000"); }
+  public get whitelistMaxAmount(): number { return parseInt(process.env.WHITELIST_MAX_AMOUNT || "10000"); }
+  public get whitelistedAddresses(): string[] {
+    return (process.env.WHITELIST_ADDRESSES || "").split(",").map(a => a.trim()).filter(a => a.length > 0);
+  }
   private safeguards: Safeguards;
   private cachedBalance: {
     balance: string; // Keep as raw balance string
@@ -112,11 +137,6 @@ export class FaucetServer {
     this.mnemonic = process.env.MNEMONIC || "";
     this.publicKey = process.env.PUBLIC_KEY || ""; // TODO Derive from mnemonic
     this.rpcUrl = process.env.RPC_URL || "";
-    this.timeInterval = parseInt(process.env.TIME_INTERVAL || "86400");
-    this.numberPerInterval = parseInt(process.env.NUMBER_PER_INTERVAL || "1");
-    this.maxAmount = parseInt(process.env.MAX_AMOUNT || "1000");
-    this.whitelistedAddresses = (process.env.WHITELIST_ADDRESSES || "").split(",").map(a => a.trim()).filter(a => a.length > 0);
-    this.whitelistMaxAmount = parseInt(process.env.WHITELIST_MAX_AMOUNT || "10000");
 
     // Validate whitelist addresses at startup
     const addressPattern = /^0x[0-9a-fA-F]{64}$/;
