@@ -17,7 +17,7 @@ COPY --chown=faucet:nodejs package.json ./
 COPY --chown=faucet:nodejs bun.lockb* ./
 
 # Install dependencies as non-root user (ownership is correct from start)
-RUN bun install && bun pm trust --all || true
+RUN bun install --ignore-scripts
 
 # Copy source code with proper ownership
 COPY --chown=faucet:nodejs src/ ./src/
