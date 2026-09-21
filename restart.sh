@@ -17,5 +17,5 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo "Restarting services..."
-docker-compose down
-docker-compose up $BUILD_FLAG
+docker compose down
+docker compose up $BUILD_FLAG
