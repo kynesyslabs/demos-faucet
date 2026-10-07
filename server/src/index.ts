@@ -1,4 +1,5 @@
 import { websdk } from "@kynesyslabs/demosdk";
+import { demToOs } from "@kynesyslabs/demosdk/utils";
 import dotenv from "dotenv";
 import { Safeguards } from "./safeguards";
 import express from "express";
@@ -183,8 +184,9 @@ async function transferTokens(
   try {
     console.log("Transferring tokens to: " + to);
     
-    // Create transaction
-    const transaction = await demos.transfer(to, amount);
+    // The network takes amounts in OS, the smallest unit; the faucet's limits
+    // are in DEM.
+    const transaction = await demos.transfer(to, demToOs(amount));
     console.log("Transaction created, confirming...");
     
     // Confirm transaction
