@@ -1,8 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
-import { body, validationResult } from 'express-validator';
 import rateLimit from 'express-rate-limit';
 import slowDown from 'express-slow-down';
 import winston from 'winston';
+import { getClientIP, clientRateKey } from './clientIp';
+
+export { getClientIP, clientRateKey };
 
 // Logger configuration
 export const logger = winston.createLogger({
@@ -29,8 +31,9 @@ export const createRateLimit = (windowMs: number, max: number, message: string) 
     message: { error: message },
     standardHeaders: true,
     legacyHeaders: false,
+    keyGenerator: clientRateKey,
     handler: (req: Request, res: Response) => {
-      logger.warn(`Rate limit exceeded for IP: ${req.ip}, path: ${req.path}`);
+      logger.warn(`Rate limit exceeded for IP: ${getClientIP(req)}, path: ${req.path}`);
       res.status(429).json({ error: message });
     }
   });
@@ -39,37 +42,13 @@ export const createRateLimit = (windowMs: number, max: number, message: string) 
 // Slow down middleware for progressive delays
 export const createSlowDown = (windowMs: number, delayAfter: number, delayMs: number) => {
   return slowDown({
+    keyGenerator: clientRateKey,
     windowMs,
     delayAfter,
     delayMs,
     maxDelayMs: delayMs * 10
   });
 };
-
-// Input validation middleware
-export const validateFaucetRequest = [
-  body('address')
-    .isString()
-    .trim()
-    .isLength({ min: 64, max: 64 })
-    .matches(/^[a-fA-F0-9]{64}$/)
-    .withMessage('Invalid address format'),
-  body('amount')
-    .isInt({ min: 1, max: 1000 })
-    .withMessage('Amount must be between 1 and 1000'),
-  
-  (req: Request, res: Response, next: NextFunction) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      logger.warn(`Validation error for IP: ${req.ip}`, { errors: errors.array() });
-      return res.status(400).json({ 
-        error: 'Invalid request parameters',
-        details: errors.array()
-      });
-    }
-    next();
-  }
-];
 
 // Security headers middleware
 export const securityHeaders = (req: Request, res: Response, next: NextFunction) => {
@@ -84,22 +63,6 @@ export const securityHeaders = (req: Request, res: Response, next: NextFunction)
   res.setHeader('Content-Security-Policy', "default-src 'self'");
   
   next();
-};
-
-// IP extraction middleware with proxy support
-export const getClientIP = (req: Request): string => {
-  const forwarded = req.headers['x-forwarded-for'] as string;
-  const realIP = req.headers['x-real-ip'] as string;
-  
-  if (forwarded) {
-    return forwarded.split(',')[0].trim();
-  }
-  
-  if (realIP) {
-    return realIP;
-  }
-  
-  return req.connection.remoteAddress || req.socket.remoteAddress || 'unknown';
 };
 
 // Request logging middleware
@@ -130,7 +93,7 @@ export class DDoSProtection {
   private readonly WINDOW_SIZE = 60 * 1000; // 1 minute
 
   public middleware = (req: Request, res: Response, next: NextFunction) => {
-    const ip = getClientIP(req);
+    const ip = clientRateKey(req);
     
     // Check if IP is currently blocked
     if (this.blockedIPs.has(ip)) {

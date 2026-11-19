@@ -1,6 +1,8 @@
 class App {
   public remoteBackendUrl: string;
   private readonly FIXED_AMOUNT: number = 10; // Fixed amount of 10 DEMOS
+  // Below this many requests' worth of DEM the balance is flagged as low.
+  private readonly LOW_BALANCE_DEM: number = this.FIXED_AMOUNT * 100;
 
   constructor() {
     // Use window global injected by server, fallback to docker internal URL
@@ -52,7 +54,7 @@ class App {
           return;
         }
 
-        this.requestTokens(address.value, this.FIXED_AMOUNT);
+        this.requestTokens(address.value.trim(), this.FIXED_AMOUNT);
       });
     }
   }
@@ -110,13 +112,12 @@ class App {
         
         // Update balance
         if (data.body && data.body.balance && faucetBalance) {
-          const balance = data.body.balance; // Raw balance as string
-          console.log("Faucet balance:", balance);
-          faucetBalance.textContent = balance;
-          
-          // Add visual indicator for low balance (checking if numeric value is low)
-          const numericBalance = Number(balance);
-          if (numericBalance < 1000000000000000000) { // Less than 1 unit in wei
+          // DEM as a decimal string; the float is only used for the threshold.
+          const balance: string = data.body.balance;
+          faucetBalance.textContent = `${balance} DEM`;
+
+          const numericBalance = Number.parseFloat(balance);
+          if (!Number.isFinite(numericBalance) || numericBalance < this.LOW_BALANCE_DEM) {
             faucetBalance.className = "status-value low-balance";
           } else {
             faucetBalance.className = "status-value";
@@ -208,7 +209,9 @@ class App {
       try {
         // Add timeout to the fetch request
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+        // The server answers only after the transfer is included on chain (or
+        // its own wait times out), so allow for queueing plus block time.
+        const timeoutId = setTimeout(() => controller.abort(), 120000);
 
         const requestBody = { address, amount };
         console.log("Sending request to backend:", {
@@ -230,6 +233,12 @@ class App {
         const responseData = await result.json();
 
         if (!result.ok) {
+          // Rate limiters answer with { error }, the faucet with { body }.
+          const errorText: string =
+            typeof responseData.body === "string"
+              ? responseData.body
+              : responseData.error || `Server returned ${result.status}`;
+          responseData.body = errorText;
           // Handle specific safeguard errors
           if (responseData.body.includes("exceeds maximum allowed amount")) {
             this.showError(
@@ -272,7 +281,11 @@ class App {
         }
 
         // Show success message
-        this.showSuccess("Tokens requested successfully!");
+        this.showSuccess(
+          responseData.body.txStatus === "pending"
+            ? "Transaction sent, waiting for confirmation"
+            : "Tokens sent successfully!"
+        );
 
         // Update balance after successful request
         await this.updateFaucetStatus();

@@ -1,555 +1,418 @@
-import { websdk } from "@kynesyslabs/demosdk";
+import { websdk, denomination } from "@kynesyslabs/demosdk";
 import dotenv from "dotenv";
-import { Safeguards } from "./safeguards";
-import express from "express";
+import express, { type Request, type Response } from "express";
 import cors from "cors";
 import helmet from "helmet";
+import { loadConfig, type FaucetConfig } from "./config";
+import { Safeguards, normalizeAddress } from "./safeguards";
+import { SerialQueue } from "./transferQueue";
 import {
   logger,
   createRateLimit,
   createSlowDown,
-  validateFaucetRequest,
   securityHeaders,
   requestLogger,
   DDoSProtection,
   honeypot,
   errorHandler,
-  getClientIP
+  getClientIP,
+  clientRateKey,
 } from "./security";
 
 dotenv.config();
 
+const config: FaucetConfig = loadConfig();
 const app = express();
-const port = process.env.PORT || 3000;
 const ddosProtection = new DDoSProtection();
 
-// Trust proxy headers when behind reverse proxy
-// Using specific proxy count instead of 'true' to satisfy express-rate-limit security
-// Set to 1 if behind single proxy (nginx), 2 if behind double proxy (cloudflare + nginx), etc.
-app.set('trust proxy', 1);
+// Hop count, not `true`: with `true` Express takes the leftmost
+// X-Forwarded-For entry, which the client controls. Each trusted hop must be
+// a proxy that appends the peer address it saw.
+app.set("trust proxy", config.trustProxyHops);
 
-// Security middleware
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "https:"],
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'"],
+        imgSrc: ["'self'", "data:", "https:"],
+      },
     },
-  },
-}));
+  }),
+);
 
 app.use(securityHeaders);
 app.use(requestLogger);
 app.use(honeypot);
 app.use(ddosProtection.middleware);
 
-// Clean up DDoS protection data every 5 minutes
 setInterval(() => ddosProtection.cleanup(), 5 * 60 * 1000);
 
-// Rate limiting
 const generalRateLimit = createRateLimit(
-  15 * 60 * 1000, // 15 minutes
-  100, // max requests per window
-  "Too many requests from this IP"
+  15 * 60 * 1000,
+  100,
+  "Too many requests from this IP",
 );
 
-const faucetRateLimit = createRateLimit(
-  60 * 1000, // 1 minute
-  3, // max 3 requests per minute
-  "Too many faucet requests"
-);
+const faucetRateLimit = createRateLimit(60 * 1000, 3, "Too many faucet requests");
 
-const slowDownMiddleware = createSlowDown(
-  15 * 60 * 1000, // 15 minutes
-  5, // delay after 5 requests
-  1000 // 1 second delay
-);
+const slowDownMiddleware = createSlowDown(15 * 60 * 1000, 5, 1000);
 
 app.use(generalRateLimit);
 app.use(slowDownMiddleware);
 
-// Enable CORS for all routes
 app.use(
   cors({
-    origin: [
-      "https://faucet.demos.sh", 
-      "http://localhost:4442", 
-      "http://localhost:8080",
-      "http://localhost:3000",
-      "http://localhost:3010"
-    ],
+    origin: config.corsOrigins,
     methods: ["GET", "POST", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: true
-  })
+    credentials: true,
+  }),
 );
 
-// Parse JSON bodies with size limit
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: "10kb" }));
 
-export class FaucetServer {
-  private mnemonic: string;
-  private publicKey: string;
-  public rpcUrl: string;
-  public timeInterval: number;
-  public numberPerInterval: number;
-  public maxAmount: number;
-  public port: number;
-  private safeguards: Safeguards;
-  private cachedBalance: {
-    balance: string; // Keep as raw balance string
-    lastUpdated: number;
-    addressInfo?: any;
-  } | null = null;
-
-  constructor() {
-    this.mnemonic = process.env.MNEMONIC || "";
-    this.publicKey = process.env.PUBLIC_KEY || ""; // TODO Derive from mnemonic
-    this.rpcUrl = process.env.RPC_URL || "";
-    this.timeInterval = parseInt(process.env.TIME_INTERVAL || "86400");
-    this.numberPerInterval = parseInt(process.env.NUMBER_PER_INTERVAL || "1");
-    this.maxAmount = parseInt(process.env.MAX_AMOUNT || "1000");
-    this.port = parseInt(process.env.PORT || "3000");
-    this.safeguards = new Safeguards(this);
-  }
-
-  public getMnemonic() {
-    return this.mnemonic;
-  }
-
-  public setPublicKey(publicKey: string) {
-    this.publicKey = publicKey;
-  }
-
-  public getPublicKey() {
-    return this.publicKey;
-  }
-
-  public getRpcUrl() {
-    return this.rpcUrl;
-  }
-
-  public getSafeguards() {
-    return this.safeguards;
-  }
-
-  public setCachedBalance(rawBalance: string, addressInfo?: any) {
-    // Clean addressInfo to remove BigInt values that cause JSON serialization issues
-    const cleanAddressInfo = addressInfo ? {
-      ...addressInfo,
-      balance: addressInfo.balance?.toString(), // Convert BigInt to string
-      nonce: addressInfo.nonce?.toString(),
-      // Remove any other potential BigInt fields
-    } : undefined;
-
-    this.cachedBalance = {
-      balance: rawBalance,
-      lastUpdated: Date.now(),
-      addressInfo: cleanAddressInfo
-    };
-    
-    logger.info("Balance cache updated:", {
-      balance: rawBalance,
-      timestamp: new Date().toISOString()
-    });
-  }
-
-  public getCachedBalance() {
-    return this.cachedBalance;
-  }
+interface FaucetState {
+  address: string;
+  balance: { os: bigint; lastUpdated: number } | null;
 }
 
-// SECTION Definitions
+type TransferOutcome =
+  | { kind: "included"; txHash: string; blockNumber?: number }
+  | { kind: "failed"; txHash: string; blockNumber?: number }
+  | { kind: "pending"; txHash: string; lastSeenState: string }
+  | { kind: "not_sent"; error: string };
 
 /**
- * Transfers tokens from the faucet to the specified address.
- * @param amount - The amount of tokens to transfer.
- * @param to - The address to transfer the tokens to.
- * @returns A promise that resolves to an object containing the success status and a message.
+ * Sends `amountDem` whole DEM and waits for a terminal on-chain state.
+ *
+ * Only a `BroadcastTimeoutError` can leave a transaction in flight: errors
+ * from signing, confirm and a fail-fast broadcast all happen before the node
+ * accepted anything, and status polling never throws.
  */
-async function transferTokens(
+async function sendTransfer(
   demos: websdk.Demos,
-  faucetServer: FaucetServer,
-  amount: number,
-  to: string
-): Promise<{
-  success: boolean;
-  message: string;
-  txHash: string;
-  confirmationBlock: number;
-}> {
+  to: string,
+  amountDem: number,
+): Promise<TransferOutcome> {
+  const outcome = await attemptTransfer(demos, to, amountDem);
+  // The local nonce counter has run ahead of the chain when the reserved
+  // nonce was not used, so the next send must reseed it from the node. After
+  // a timeout the tx may still land, and keeping the counter avoids reusing
+  // its nonce.
+  if (outcome.kind === "not_sent" || outcome.kind === "failed") {
+    demos.resetNonce();
+  }
+  return outcome;
+}
+
+async function attemptTransfer(
+  demos: websdk.Demos,
+  to: string,
+  amountDem: number,
+): Promise<TransferOutcome> {
   try {
-    console.log("Transferring tokens to: " + to);
-    
-    // Create transaction
-    const transaction = await demos.transfer(to, amount);
-    console.log("Transaction created, confirming...");
-    
-    // Confirm transaction
-    const confirmation = await demos.confirm(transaction);
-    console.log("Confirmation: " + JSON.stringify(confirmation, null, 2));
-    
-    if (!confirmation.response.data.valid) {
-      console.log("Transaction failed during confirmation");
-      return {
-        success: false,
-        message: "Transaction failed: " + JSON.stringify(confirmation, null, 2),
-        txHash: "",
-        confirmationBlock: -1,
-      };
-    }
-    
-    const txHash = confirmation.response.data.transaction.hash;
-    const confirmationBlock = confirmation.response.data.reference_block;
-    
-    // Broadcast transaction
-    console.log("Broadcasting transaction...");
-    const result = await demos.broadcast(confirmation);
-    console.log("Broadcast result: " + JSON.stringify(result, null, 2));
-    
-    return {
-      success: true,
-      message: `Transaction successful: ${txHash}`,
-      txHash: txHash,
-      confirmationBlock: confirmationBlock,
-    };
+    const result = await demos.transferAndWait(to, denomination.demToOs(amountDem), {
+      failFastOnBroadcastError: true,
+      timeoutMs: config.transferTimeoutMs,
+    });
+    const { state, blockNumber } = result.status;
+    return state === "included"
+      ? { kind: "included", txHash: result.hash, blockNumber }
+      : { kind: "failed", txHash: result.hash, blockNumber };
   } catch (error) {
-    console.error("Transaction failed:", error);
-    return {
-      success: false,
-      message: `Transaction failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      txHash: "",
-      confirmationBlock: -1,
-    };
+    if (error instanceof websdk.BroadcastTimeoutError) {
+      return { kind: "pending", txHash: error.txHash, lastSeenState: error.lastSeenState };
+    }
+    return { kind: "not_sent", error: error instanceof Error ? error.message : String(error) };
   }
 }
 
-/**
- * Updates the balance cache by fetching from the network
- */
-/**
- * Retry mechanism for network operations with exponential backoff
- */
 async function retryWithBackoff<T>(
   operation: () => Promise<T>,
   maxAttempts: number = 3,
   baseDelay: number = 5000,
-  operationName: string = "operation"
+  operationName: string = "operation",
 ): Promise<T> {
   let lastError: Error;
-  
+
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      logger.info(`${operationName} - Attempt ${attempt}/${maxAttempts}`);
-      const result = await operation();
-      
-      if (attempt > 1) {
-        logger.info(`${operationName} succeeded on attempt ${attempt}`);
-      }
-      
-      return result;
+      return await operation();
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
       logger.warn(`${operationName} failed on attempt ${attempt}/${maxAttempts}:`, lastError.message);
-      
       if (attempt < maxAttempts) {
-        const delay = baseDelay * Math.pow(1.5, attempt - 1); // Exponential backoff
-        logger.info(`Retrying ${operationName} in ${delay}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
+        const delay = baseDelay * Math.pow(1.5, attempt - 1);
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
   }
-  
-  logger.error(`${operationName} failed after ${maxAttempts} attempts`);
+
   throw lastError!;
 }
 
-async function updateBalanceCache(faucetServer: FaucetServer, demos: websdk.Demos) {
+async function fetchBalanceOs(demos: websdk.Demos, address: string): Promise<bigint | null> {
+  const info = await retryWithBackoff(
+    () => demos.getAddressInfo(address),
+    3,
+    5000,
+    "getAddressInfo",
+  );
+  return info ? info.balance : null;
+}
+
+async function updateBalanceCache(state: FaucetState, demos: websdk.Demos) {
   try {
-    const publicKey = faucetServer.getPublicKey();
-    if (!publicKey) {
-      logger.warn("No public key available for balance update");
+    const os = await fetchBalanceOs(demos, state.address);
+    if (os === null) {
+      logger.warn("Faucet address unknown to the node; balance not updated");
       return;
     }
-    
-    const addrInfo = await retryWithBackoff(
-      () => demos.getAddressInfo(publicKey),
-      3,
-      5000,
-      "getAddressInfo for balance cache"
-    );
-    const rawBalance = addrInfo?.balance;
-    
-    if (rawBalance !== undefined) {
-      faucetServer.setCachedBalance(rawBalance.toString(), addrInfo);
-      logger.info("Balance cache updated successfully", { balance: rawBalance });
-    } else {
-      logger.warn("Failed to get balance from network");
-    }
+    state.balance = { os, lastUpdated: Date.now() };
+    logger.info("Balance cache updated", { balance: denomination.formatDem(os) });
   } catch (error) {
     logger.error("Error updating balance cache:", error);
   }
 }
 
-// SECTION Server logic
-/**
- * Starts the periodic balance updater
- */
-function startBalanceUpdater(faucetServer: FaucetServer, demos: websdk.Demos) {
-  logger.info("Starting periodic balance updater (30 second interval)");
-  
-  // Initial update
-  updateBalanceCache(faucetServer, demos);
-  
-  // Set up periodic updates every 30 seconds (reduced from 5 seconds)
-  setInterval(() => {
-    updateBalanceCache(faucetServer, demos);
-  }, 30000);
+const BALANCE_CACHE_MS = 30000;
+
+function startBalanceUpdater(state: FaucetState, demos: websdk.Demos) {
+  updateBalanceCache(state, demos);
+  setInterval(() => updateBalanceCache(state, demos), BALANCE_CACHE_MS);
 }
 
-/**
- * Forces a balance update from the blockchain
- */
-async function forceBalanceUpdate(faucetServer: FaucetServer, demos: websdk.Demos): Promise<void> {
-  logger.info("Forcing balance update from blockchain");
-  await updateBalanceCache(faucetServer, demos);
+function balanceBody(os: bigint) {
+  // DEM as a decimal string formatted from the OS bigint, so the UI never sees
+  // a float that lost precision.
+  return { balance: denomination.osToDem(os), balanceOs: os.toString(), unit: "DEM" };
 }
 
-/**
- * Sets up API routes after initialization
- */
-function setupRoutes(faucetServer: FaucetServer, demos: websdk.Demos) {
-  // Root route
-  app.get("/", (req, res) => {
-    res.json({ 
+function setupRoutes(
+  state: FaucetState,
+  demos: websdk.Demos,
+  safeguards: Safeguards,
+  transferQueue: SerialQueue,
+) {
+  app.get("/", (_req: Request, res: Response) => {
+    res.json({
       service: "Demos Faucet API",
-      version: "1.0.0",
+      version: "1.1.0",
       endpoints: [
         "/api/health",
         "/api/balance",
         "/api/request",
         "/api/stats/address",
-        "/api/stats/global"
-      ]
+        "/api/stats/global",
+      ],
     });
   });
 
-  // API Routes
-  app.get("/api/test", (req, res) => {
-    logger.info("Test endpoint hit");
+  app.get("/api/test", (_req: Request, res: Response) => {
     res.json({ message: "Hello World", timestamp: new Date().toISOString() });
   });
 
-  app.get("/api/balance", async (req, res) => {
+  app.get("/api/balance", async (_req: Request, res: Response) => {
+    // Every open page polls this; serving the updater's recent value keeps
+    // page views from turning into node RPC load.
+    if (state.balance && Date.now() - state.balance.lastUpdated < BALANCE_CACHE_MS) {
+      return res.json({
+        status: 200,
+        body: { ...balanceBody(state.balance.os), publicKey: state.address, cached: true },
+      });
+    }
     try {
-      const publicKey = faucetServer.getPublicKey();
-      logger.info("Getting live balance for public key: " + publicKey);
-      
-      if (!publicKey) {
-        logger.error("No public key available");
-        return res.status(500).json({ 
-          error: "Faucet wallet not initialized",
-          status: 500,
-          body: { balance: 0 }
-        });
-      }
-
-      // Get live balance directly from network with retry mechanism
-      try {
-        const addrInfo = await retryWithBackoff(
-          () => demos.getAddressInfo(publicKey),
-          3,
-          5000,
-          "getAddressInfo for balance endpoint"
-        );
-        const rawBalance = addrInfo?.balance;
-        
-        if (rawBalance !== undefined) {
-          logger.info("Live balance retrieved successfully", { balance: rawBalance });
-          return res.json({
-            status: 200,
-            body: {
-              balance: rawBalance.toString(),
-              publicKey: publicKey,
-              cached: false,
-              message: "Live balance (cache disabled)"
-            },
-          });
-        } else {
-          logger.warn("Failed to get balance from network");
-          return res.status(500).json({
-            status: 500,
-            body: { 
-              balance: 0,
-              message: "Failed to retrieve balance from network",
-              publicKey: publicKey
-            }
-          });
-        }
-      } catch (networkError) {
-        logger.error("Network error getting balance:", networkError);
+      const os = await fetchBalanceOs(demos, state.address);
+      if (os === null) {
         return res.status(500).json({
           status: 500,
-          body: { 
-            balance: 0,
-            message: "Network error retrieving balance",
-            error: networkError instanceof Error ? networkError.message : 'Unknown error',
-            publicKey: publicKey
-          }
+          body: { balance: "0.0", message: "Failed to retrieve balance from network", publicKey: state.address },
         });
       }
+      state.balance = { os, lastUpdated: Date.now() };
+      return res.json({
+        status: 200,
+        body: { ...balanceBody(os), publicKey: state.address, cached: false },
+      });
     } catch (error) {
-      logger.error("Error getting balance:", error);
-      return res.status(500).json({ 
-        error: "Failed to get balance",
+      logger.error("Network error getting balance:", error);
+      return res.status(500).json({
         status: 500,
-        body: { balance: 0 }
+        body: { balance: "0.0", message: "Network error retrieving balance", publicKey: state.address },
       });
     }
   });
 
-  // Request tokens endpoint (moved to setupRoutes)
-  app.post("/api/request", faucetRateLimit, async (req, res) => {
+  app.post("/api/request", faucetRateLimit, async (req: Request, res: Response) => {
     try {
-      const { address, amount } = req.body;
-      const ip = getClientIP(req);
-
-      // Validate input
-      if (!address || !amount) {
-        return res.status(400).json({
-          status: 400,
-          body: "Address and amount are required",
-        });
+      return await handleFaucetRequest(req, res);
+    } catch (error) {
+      // Express 4 does not catch rejected async handlers; without this a
+      // database error would leave the request hanging.
+      logger.error("Error processing faucet request:", error);
+      if (!res.headersSent) {
+        res.status(500).json({ status: 500, body: "Internal server error" });
       }
+    }
+  });
 
-      // Force balance update before processing request
-      await forceBalanceUpdate(faucetServer, demos);
+  async function handleFaucetRequest(req: Request, res: Response) {
+    const { address, amount } = req.body ?? {};
+    const ip = getClientIP(req);
 
-      // Check safeguards
-      const safeguards = faucetServer.getSafeguards();
-      const checkResult = await safeguards.checkSafeguards(address, amount, ip);
+    // Refusing before reserving keeps a backlog from holding allowances
+    // for transfers that would wait minutes in the queue.
+    if (transferQueue.pending >= config.maxPendingTransfers) {
+      return res.status(503).json({ status: 503, body: "The faucet is busy, please retry in a minute" });
+    }
 
-      if (!checkResult.allowed) {
-        logger.warn("Safeguard check failed", { address, amount, ip, reason: checkResult.message });
-        return res.status(400).json({
-          status: 400,
-          body: checkResult.message,
-        });
-      }
+    const reservation = safeguards.reserve(address, amount, clientRateKey(req));
+    if (!reservation.allowed) {
+      const invalid = reservation.reason === "invalid_address" || reservation.reason === "invalid_amount";
+      logger.warn("Faucet request refused", { address, amount, ip, reason: reservation.reason });
+      return res.status(invalid ? 400 : 429).json({
+        status: invalid ? 400 : 429,
+        reason: reservation.reason,
+        body: reservation.message,
+      });
+    }
 
-      // Transfer the tokens
-      let result = await transferTokens(demos, faucetServer, amount, address);
+    let outcome: TransferOutcome;
+    try {
+      outcome = await transferQueue.run(() =>
+        sendTransfer(demos, reservation.address, reservation.amount),
+      );
+    } catch (error) {
+      outcome = { kind: "not_sent", error: error instanceof Error ? error.message : String(error) };
+    }
 
-      if (result.success) {
-        // Force balance update after successful transfer
-        await forceBalanceUpdate(faucetServer, demos);
-        
+    if (outcome.kind === "not_sent" || outcome.kind === "failed") {
+      safeguards.release(reservation.id);
+    }
+    if (outcome.kind !== "not_sent") {
+      void updateBalanceCache(state, demos);
+    }
+
+    switch (outcome.kind) {
+      case "included":
+        logger.info("Faucet transfer included", { to: reservation.address, amount: reservation.amount, ip, txHash: outcome.txHash });
         return res.json({
           status: 200,
           body: {
-            txHash: result.txHash,
-            confirmationBlock: result.confirmationBlock,
-            message: result.message,
+            txHash: outcome.txHash,
+            txStatus: "included",
+            blockNumber: outcome.blockNumber ?? null,
+            confirmationBlock: outcome.blockNumber ?? -1,
+            amount: reservation.amount,
+            message: `Sent ${reservation.amount} DEM`,
           },
         });
-      } else {
-        return res.status(400).json({
-          status: 400,
-          body: result.message,
+      case "pending":
+        // The transaction may still land, so the allowance stays used.
+        logger.warn("Faucet transfer not final before timeout", { to: reservation.address, txHash: outcome.txHash, lastSeenState: outcome.lastSeenState });
+        return res.status(202).json({
+          status: 202,
+          body: {
+            txHash: outcome.txHash,
+            txStatus: "pending",
+            blockNumber: null,
+            confirmationBlock: -1,
+            amount: reservation.amount,
+            message: "Transaction broadcast, not yet confirmed",
+          },
         });
-      }
-    } catch (error) {
-      logger.error("Error processing faucet request:", error);
-      return res.status(500).json({
-        status: 500,
-        body: "Internal server error",
-      });
+      case "failed":
+        logger.error("Faucet transfer failed on chain", { to: reservation.address, txHash: outcome.txHash });
+        return res.status(502).json({
+          status: 502,
+          reason: "transfer_failed",
+          txHash: outcome.txHash,
+          txStatus: "failed",
+          body: "The transfer failed on chain, your allowance was not used",
+        });
+      case "not_sent":
+        logger.error("Faucet transfer not sent", { to: reservation.address, error: outcome.error });
+        return res.status(502).json({
+          status: 502,
+          reason: "transfer_not_sent",
+          body: "The transfer could not be sent, your allowance was not used; please retry later",
+        });
     }
-  });
+  }
 
-  app.get("/api/stats/address", async (req, res) => {
+  app.get("/api/stats/address", (req: Request, res: Response) => {
+    const address = normalizeAddress(req.query.address);
+    if (!address) {
+      return res.status(400).json({ status: 400, body: "address must be 0x followed by 64 hex characters" });
+    }
     try {
-      const address = req.query.address as string;
-
-      if (!address) {
-        return res.status(400).json({
-          status: 400,
-          body: "Address parameter is required",
-        });
-      }
-
-      const stats = await faucetServer.getSafeguards().getAddressStats(address);
-      res.json({
-        status: 200,
-        body: stats,
-      });
+      res.json({ status: 200, body: safeguards.getAddressStats(address) });
     } catch (error) {
       logger.error("Error getting address stats:", error);
       res.status(500).json({ error: "Failed to get address stats" });
     }
   });
 
-  app.get("/api/stats/global", async (req, res) => {
+  app.get("/api/stats/global", (_req: Request, res: Response) => {
     try {
-      const stats = await faucetServer.getSafeguards().getGlobalStats();
-      res.json({
-        status: 200,
-        body: stats,
-      });
+      res.json({ status: 200, body: safeguards.getGlobalStats() });
     } catch (error) {
       logger.error("Error getting global stats:", error);
       res.status(500).json({ error: "Failed to get global stats" });
     }
   });
 
-  app.get("/api/health", (req, res) => {
+  app.get("/api/health", (_req: Request, res: Response) => {
     res.json({
       status: "healthy",
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
-      walletConnected: !!faucetServer.getPublicKey()
+      walletConnected: !!state.address,
+      pendingTransfers: transferQueue.pending,
     });
   });
 
-  // 404 handler
-  app.use((req, res) => {
+  app.use((req: Request, res: Response) => {
     logger.warn("404 - Route not found", { path: req.path, method: req.method });
     res.status(404).json({ error: "Not Found" });
   });
 
-  // Error handler
   app.use(errorHandler);
 }
 
-/**
- * Starts the server.
- */
-async function server() {
-  app.listen(port, () => {
-    logger.info(`Faucet server listening on port ${port}`);
+async function main() {
+  if (!config.rpcUrl) throw new Error("RPC_URL is required");
+  if (!config.mnemonic) throw new Error("MNEMONIC is required");
+
+  const safeguards = new Safeguards(config, config.dbPath);
+  const demos = new websdk.Demos();
+  await demos.connect(config.rpcUrl);
+  const address = await demos.connectWallet(config.mnemonic);
+  // getAddressNonce lags inclusion, so re-reading it right after an included
+  // transfer can hand the next transfer the same nonce; a local counter
+  // sequences consecutive faucet sends instead.
+  demos.enableAutoNonce();
+  logger.info(`Connected to ${config.rpcUrl} as ${address}`);
+  logger.info("Faucet limits", {
+    timeInterval: config.timeInterval,
+    maxAmount: config.maxAmount,
+    numberPerInterval: config.numberPerInterval,
+    maxAmountPerIp: config.maxAmountPerIp,
+    numberPerIpPerInterval: config.numberPerIpPerInterval,
+    globalMaxAmountPerInterval: config.globalMaxAmountPerInterval,
+    trustProxyHops: config.trustProxyHops,
+  });
+
+  const state: FaucetState = { address, balance: null };
+  setupRoutes(state, demos, safeguards, new SerialQueue());
+  startBalanceUpdater(state, demos);
+
+  app.listen(config.port, () => {
+    logger.info(`Faucet server listening on port ${config.port}`);
   });
 }
 
-// SECTION Initialization logic
-
-// Initialize the faucet server
-const faucetServer = new FaucetServer();
-// Initialize the demos instance
-let demos = new websdk.Demos();
-// Connecting to the network
-await demos.connect(faucetServer.getRpcUrl());
-// Connecting to the wallet
-let mnemonic = faucetServer.getMnemonic();
-console.log("Trying to connect with mnemonic");
-let walletAddress = await demos.connectWallet(mnemonic);
-console.log("Connected to the network and wallet: " + walletAddress);
-faucetServer.setPublicKey(walletAddress);
-
-// Setup routes and start balance updater
-setupRoutes(faucetServer, demos);
-startBalanceUpdater(faucetServer, demos);
-
-// Starting the server
-server();
+await main();
