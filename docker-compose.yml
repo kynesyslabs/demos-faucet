@@ -34,6 +34,9 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3010
+      # On the mounted volume so the request history behind the caps
+      # survives container rebuilds.
+      - FAUCET_DB_PATH=/app/data/faucet.db
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3010/api/health"]
